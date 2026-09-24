@@ -1,67 +1,72 @@
 document.addEventListener('DOMContentLoaded', () => {
-    fetchLiveDamData();
-    setInterval(fetchLiveDamData, 300000); // อัปเดตข้อมูลทุกๆ 5 นาที
+    loadRealtimeData();
+    setInterval(loadRealtimeData, 300000); // อัปเดตข้อมูลทุก 5 นาที
 });
 
-async function fetchLiveDamData() {
-    // API อ่างเก็บน้ำขนาดใหญ่ของ ThaiWater (ผ่าน CORS Proxy เพื่อเลี่ยงปัญหาติด Cross-Origin)
-    const targetApi = 'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/dam_storage';
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetApi)}`;
+async function loadRealtimeData() {
+    // 1. ดึงข้อมูลปริมาตรน้ำเขื่อนลำตะคองสดๆ จาก API ของ ThaiWater ผ่าน CORS Proxy
+    const thaiWaterApi = 'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/dam_storage';
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(thaiWaterApi)}&_=${new Date().getTime()}`;
 
-    // ค่า Default เผื่อดึงไม่สำเร็จ
     let damData = {
-        name: "อ่างเก็บน้ำลำตะคอง ต.คลองไผ่ อ.สีคิ้ว",
-        sourceUrl: "https://www.thaiwater.net/water/dam/large",
         capacity: 314.49,
-        volume: 248.65,
-        inflow: 1.08,
-        outflow: 0.39
+        volume: 0,
+        inflow: 0,
+        outflow: 0
     };
+
+    let isApiSuccess = false;
 
     try {
         const response = await fetch(proxyUrl);
         if (response.ok) {
-            const proxyData = await response.json();
-            const resJson = JSON.parse(proxyData.contents);
-            const damList = resJson.dam_storage || [];
-
+            const wrapper = await response.json();
+            const result = JSON.parse(wrapper.contents);
+            const dams = result.dam_storage || [];
+            
             // ค้นหาเขื่อนลำตะคอง
-            const lamTakhong = damList.find(d => {
+            const lamTakhong = dams.find(d => {
                 const name = d.dam?.dam_name?.th || '';
                 return name.includes('ลำตะคอง');
             });
 
             if (lamTakhong) {
-                damData.capacity = Number(lamTakhong.dam_capacity) || 314.49;
-                damData.volume = Number(lamTakhong.dam_storage) || 0;
-                damData.inflow = Number(lamTakhong.dam_inflow) || 0;
-                damData.outflow = Number(lamTakhong.dam_uses) || 0; // ปริมาตรน้ำระบาย/ใช้น้ำ
+                damData.capacity = parseFloat(lamTakhong.dam_capacity) || 314.49;
+                damData.volume = parseFloat(lamTakhong.dam_storage) || 0;
+                damData.inflow = parseFloat(lamTakhong.dam_inflow) || 0;
+                damData.outflow = parseFloat(lamTakhong.dam_uses) || 0; // ปริมาณน้ำระบาย
+                isApiSuccess = true;
             }
         }
-    } catch (error) {
-        console.warn("ดึงข้อมูลสดจาก ThaiWater ไม่สำเร็จ ใช้ชุดข้อมูลสำรอง:", error);
+    } catch (err) {
+        console.warn("ไม่สามารถยิงตรงหา API ThaiWater ได้ จะดึงจากไฟล์สำรองแทน:", err);
     }
 
-    // แสดงผลข้อมูลเขื่อน
+    // 2. ดึงข้อมูลฝนและระดับน้ำในลำน้ำจาก latest_data.json (ใส่ timestamp เพื่อแก้ปัญหา Browser Cache ค้าง)
+    try {
+        const localRes = await fetch('data/latest_data.json?cache_bust=' + new Date().getTime());
+        if (localRes.ok) {
+            const localData = await localRes.json();
+            
+            // ถ้าดึง API สดไม่ผ่าน ให้ใช้ค่าจาก latest_data.json
+            if (!isApiSuccess && localData.dam) {
+                damData = localData.dam;
+            }
+
+            if (localData.rainfall) updateRainSection(localData.rainfall);
+            if (localData.waterLevels) updateWaterLevelChart(localData.waterLevels);
+            if (localData.waterLevels && localData.rainfall) {
+                updateCommunityAlerts(localData.waterLevels, localData.rainfall.rain24h);
+            }
+        }
+    } catch (err) {
+        console.error("ดึงข้อมูล Local JSON ไม่สำเร็จ:", err);
+    }
+
+    // 3. แสดงผลข้อมูลเขื่อน + คิด % น้ำกักเก็บอย่างแม่นยำ
     updateDamSection(damData);
 
-    // ดึงข้อมูลสถานีฝนและระดับน้ำอื่นๆ จาก JSON ในระบบ
-    fetchLocalData();
-}
-
-async function fetchLocalData() {
-    try {
-        const response = await fetch('data/latest_data.json?t=' + new Date().getTime());
-        if (response.ok) {
-            const data = await response.json();
-            if (data.rainfall) updateRainSection(data.rainfall);
-            if (data.waterLevels) updateWaterLevelChart(data.waterLevels);
-            if (data.waterLevels && data.rainfall) updateCommunityAlerts(data.waterLevels, data.rainfall.rain24h);
-        }
-    } catch (e) {
-        console.error("ดึงข้อมูลไฟล์ local data ไม่สำเร็จ:", e);
-    }
-
+    // 4. แสดงเวลาอัปเดตปัจจุบัน
     const updateElem = document.getElementById('last-update');
     if (updateElem) {
         const now = new Date();
@@ -69,12 +74,12 @@ async function fetchLocalData() {
     }
 }
 
-// อัปเดตและคำนวณ % น้ำในอ่างอัตโนมัติ
+// ฟังก์ชันคำนวณ % และแสดงผลข้อมูลน้ำในเขื่อน
 function updateDamSection(damData) {
     const capacity = damData.capacity || 314.49;
     const volume = damData.volume || 0;
     
-    // คำนวณเปอร์เซ็นต์อัตโนมัติ: (น้ำในอ่าง / ความจุอ่าง) * 100
+    // คำนวณเปอร์เซ็นต์อัตโนมัติ: (ปริมาตรน้ำจริง / ความจุอ่าง) * 100
     const calculatedPercent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
 
     const capElem = document.getElementById('dam-capacity');
@@ -87,19 +92,13 @@ function updateDamSection(damData) {
     if (pctElem) pctElem.innerText = `${calculatedPercent}%`;
     
     const inflowElem = document.getElementById('dam-inflow');
-    if (inflowElem) inflowElem.innerHTML = `${Number(damData.inflow).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
+    if (inflowElem) inflowElem.innerHTML = `${Number(damData.inflow || 0).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
     
     const outflowElem = document.getElementById('dam-outflow');
-    if (outflowElem) outflowElem.innerHTML = `${Number(damData.outflow).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
-
-    const sourceLink = document.getElementById('dam-source-link');
-    if (sourceLink && damData.sourceUrl) {
-        sourceLink.href = damData.sourceUrl;
-    }
+    if (outflowElem) outflowElem.innerHTML = `${Number(damData.outflow || 0).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
 }
 
 function updateRainSection(rainData) {
-    if (!rainData) return;
     const rainElem = document.getElementById('rain-24h');
     if (rainElem) rainElem.innerHTML = `${(rainData.rain24h || 0).toFixed(1)} <span class="text-xs font-normal">มม.</span>`;
     
@@ -136,8 +135,8 @@ function updateRainSection(rainData) {
                         x: { grid: { display: false } }
                     }
                 }
-            }
-        });
+            });
+        }
     }
 }
 
