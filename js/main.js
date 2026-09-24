@@ -1,11 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
     fetchData();
-    setInterval(fetchData, 3600000); // ตั้งเวลาอัปเดตข้อมูลอัตโนมัติทุก 1 ชั่วโมง
+    setInterval(fetchData, 3600000); // อัปเดตข้อมูลอัตโนมัติทุก 1 ชั่วโมง
 });
 
 async function fetchData() {
     try {
-        // ดึงข้อมูลล่าสุดจาก data/latest_data.json
         const response = await fetch('data/latest_data.json?t=' + new Date().getTime());
         
         if (!response.ok) {
@@ -16,7 +15,6 @@ async function fetchData() {
         renderDashboard(data);
     } catch (e) {
         console.warn("ดึงข้อมูลจากไฟล์ latest_data.json ไม่สำเร็จ ใช้ชุดข้อมูลสำรองสำหรับแสดงผล:", e);
-        // ชุดข้อมูลสำรองอ้างอิงโครงสร้าง ThaiWater (Large Dam)
         const fallbackData = {
             rainfall: {
                 rain24h: 32.5,
@@ -32,8 +30,8 @@ async function fetchData() {
                 capacity: 314.49,
                 volume: 248.65, 
                 percent: 79.06, 
-                inflow: 12.45, 
-                outflow: 4.50 
+                inflow: 1.08, 
+                outflow: 0.39 
             },
             waterLevels: {
                 M177: { level: 241.20, bank: 243.30 },
@@ -98,25 +96,26 @@ function updateRainSection(rainData) {
     }
 }
 
-// อัปเดตข้อมูลอ่างเก็บน้ำลำตะคอง จาก คลังข้อมูลน้ำแห่งชาติ ThaiWater
+// อัปเดตข้อมูลการแสดงผลอ่างเก็บน้ำลำตะคอง ตามมาตรฐาน ThaiWater
 function updateDamSection(damData) {
+    const capElem = document.getElementById('dam-capacity');
+    if (capElem && damData.capacity) capElem.innerText = damData.capacity;
+
     const volElem = document.getElementById('dam-volume');
-    if (volElem) volElem.innerHTML = `${damData.volume} <span class="text-xs font-normal text-slate-500">ล้าน ม.³</span>`;
+    if (volElem) volElem.innerHTML = `${damData.volume} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม.</span>`;
     
     const pctElem = document.getElementById('dam-percent');
     if (pctElem) pctElem.innerText = `${damData.percent}%`;
     
     const inflowElem = document.getElementById('dam-inflow');
-    if (inflowElem) inflowElem.innerHTML = `${damData.inflow} <span class="text-xs font-normal text-slate-500">ลบ.ม./วิ</span>`;
+    if (inflowElem) inflowElem.innerHTML = `${damData.inflow} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
     
     const outflowElem = document.getElementById('dam-outflow');
-    if (outflowElem) outflowElem.innerHTML = `${damData.outflow} <span class="text-xs font-normal text-slate-500">ลบ.ม./วิ</span>`;
+    if (outflowElem) outflowElem.innerHTML = `${damData.outflow} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
 
-    // ปรับเปลี่ยน Link และ Text อ้างอิง ThaiWater
     const sourceLink = document.getElementById('dam-source-link');
-    if (sourceLink) {
-        sourceLink.href = "https://www.thaiwater.net/water/dam/large";
-        sourceLink.innerText = "🔗 ที่มา: ข้อมูลเขื่อนขนาดใหญ่ (ThaiWater.net)";
+    if (sourceLink && damData.sourceUrl) {
+        sourceLink.href = damData.sourceUrl;
     }
 }
 
@@ -172,7 +171,9 @@ function updateWaterLevelChart(stations) {
             options: { 
                 responsive: true, 
                 maintainAspectRatio: false,
-                plugins: { legend: { position: 'top' } },
+                plugins: {
+                    legend: { position: 'top' }
+                },
                 scales: {
                     y: { 
                         grid: { color: '#f1f5f9' },
