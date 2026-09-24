@@ -1,0 +1,35 @@
+name: Auto Update Water Monitoring Data
+
+on:
+  schedule:
+    # รันทุก 2 ชั่วโมง
+    - cron: '0 */2 * * *'
+  workflow_dispatch: # ปุ่มกดสั่งรันด้วยตนเองได้ใน GitHub Actions
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pandas
+
+      - name: Run Fetch Script
+        run: python scripts/fetch_data.py
+
+      - name: Commit and Push Updated Data
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/latest_data.json
+          git diff-index --quiet HEAD || git commit -m "Auto-update water data from ThaiWater"
+          git push
