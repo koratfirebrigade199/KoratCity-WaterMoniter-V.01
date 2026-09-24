@@ -1,11 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
     fetchData();
-    setInterval(fetchData, 3600000); // ตั้งค่า Update ข้อมูลโดยอัตโนมัติทุก 1 ชั่วโมง
+    setInterval(fetchData, 3600000); // ตั้งเวลาอัปเดตข้อมูลอัตโนมัติทุก 1 ชั่วโมง
 });
 
 async function fetchData() {
     try {
-        // ดึงข้อมูลล่าสุดจาก data/latest_data.json พร้อมป้องกัน Cache
+        // ดึงข้อมูลล่าสุดจาก data/latest_data.json
         const response = await fetch('data/latest_data.json?t=' + new Date().getTime());
         
         if (!response.ok) {
@@ -16,7 +16,7 @@ async function fetchData() {
         renderDashboard(data);
     } catch (e) {
         console.warn("ดึงข้อมูลจากไฟล์ latest_data.json ไม่สำเร็จ ใช้ชุดข้อมูลสำรองสำหรับแสดงผล:", e);
-        // ชุดข้อมูลสำรองกรณี GitHub Pages ยังอัปเดตไฟล์ JSON ไม่เสร็จ
+        // ชุดข้อมูลสำรองอ้างอิงโครงสร้าง ThaiWater (Large Dam)
         const fallbackData = {
             rainfall: {
                 rain24h: 32.5,
@@ -27,8 +27,8 @@ async function fetchData() {
                 ]
             },
             dam: { 
-                name: "โครงการส่งน้ำและบำรุงรักษาลำตะคอง ต.คลองไผ่ อ.สีคิ้ว",
-                sourceUrl: "http://lamtakhong-omp.rid.go.th/Lamtakhong/index.php",
+                name: "อ่างเก็บน้ำลำตะคอง ต.คลองไผ่ อ.สีคิ้ว",
+                sourceUrl: "https://www.thaiwater.net/water/dam/large",
                 capacity: 314.49,
                 volume: 248.65, 
                 percent: 79.06, 
@@ -98,6 +98,7 @@ function updateRainSection(rainData) {
     }
 }
 
+// อัปเดตข้อมูลอ่างเก็บน้ำลำตะคอง จาก คลังข้อมูลน้ำแห่งชาติ ThaiWater
 function updateDamSection(damData) {
     const volElem = document.getElementById('dam-volume');
     if (volElem) volElem.innerHTML = `${damData.volume} <span class="text-xs font-normal text-slate-500">ล้าน ม.³</span>`;
@@ -111,9 +112,11 @@ function updateDamSection(damData) {
     const outflowElem = document.getElementById('dam-outflow');
     if (outflowElem) outflowElem.innerHTML = `${damData.outflow} <span class="text-xs font-normal text-slate-500">ลบ.ม./วิ</span>`;
 
+    // ปรับเปลี่ยน Link และ Text อ้างอิง ThaiWater
     const sourceLink = document.getElementById('dam-source-link');
-    if (sourceLink && damData.sourceUrl) {
-        sourceLink.href = damData.sourceUrl;
+    if (sourceLink) {
+        sourceLink.href = "https://www.thaiwater.net/water/dam/large";
+        sourceLink.innerText = "🔗 ที่มา: ข้อมูลเขื่อนขนาดใหญ่ (ThaiWater.net)";
     }
 }
 
@@ -169,9 +172,7 @@ function updateWaterLevelChart(stations) {
             options: { 
                 responsive: true, 
                 maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'top' }
-                },
+                plugins: { legend: { position: 'top' } },
                 scales: {
                     y: { 
                         grid: { color: '#f1f5f9' },
