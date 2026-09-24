@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function fetchData() {
     try {
-        // ใส่ timestamp ต่อท้าย URL เพื่อบังคับให้โหลดไฟล์ใหม่เสมอ ป้องกัน Browser Cache
+        // บังคับแก้ Browser Cache ด้วยการต่อ Timestamp เพื่อให้ดึงข้อมูลใหม่ทันที
         const cacheBuster = new Date().getTime();
         const response = await fetch(`data/latest_data.json?v=${cacheBuster}`);
         
@@ -16,34 +16,34 @@ async function fetchData() {
         const data = await response.json();
         renderDashboard(data);
     } catch (error) {
-        console.error("เกิดข้อผิดพลาดในการโหลดข้อมูล:", error);
+        console.error("เกิดข้อผิดพลาดในการดึงข้อมูล:", error);
     }
 }
 
 function renderDashboard(data) {
     if (!data) return;
 
-    // 1. อัปเดตข้อมูลเขื่อนลำตะคอง + คิด % อัตโนมัติ
+    // 1. อัปเดตข้อมูลเขื่อนลำตะคอง + คิดเปอร์เซ็นต์อัตโนมัติอย่างถูกต้อง
     if (data.dam) {
         updateDamSection(data.dam);
     }
 
-    // 2. อัปเดตปริมาณฝน
+    // 2. อัปเดตข้อมูลปริมาณฝน
     if (data.rainfall) {
         updateRainSection(data.rainfall);
     }
 
-    // 3. อัปเดต กราฟระดับน้ำ
+    // 3. อัปเดตกราฟระดับน้ำ
     if (data.waterLevels) {
         updateWaterLevelChart(data.waterLevels);
     }
 
-    // 4. อัปเดต การเตือนภัยชุมชน (หากมีฟังก์ชันและตัวแปรรับรอง)
+    // 4. อัปเดตการแจ้งเตือนชุมชน (ตรวจสอบว่ามีฟังก์ชันรองรับเพื่อป้องกัน Script ค้าง)
     if (data.waterLevels && data.rainfall && typeof COMMUNITIES !== 'undefined' && typeof evaluateCommunityRisk === 'function') {
         updateCommunityAlerts(data.waterLevels, data.rainfall.rain24h);
     }
 
-    // 5. แสดงเวลาอัปเดตบนหน้าจอ
+    // 5. แสดงเวลาอัปเดตข้อมูลบน UI
     const updateElem = document.getElementById('last-update');
     if (updateElem) {
         const updateDate = data.updatedAt ? new Date(data.updatedAt) : new Date();
@@ -55,7 +55,7 @@ function updateDamSection(damData) {
     const capacity = damData.capacity || 314.49;
     const volume = damData.volume || 0;
     
-    // คำนวณเปอร์เซ็นต์อย่างถูกต้อง: (ปริมาตรน้ำในอ่าง / ความจุอ่าง) * 100
+    // สูตรคำนวณเปอร์เซ็นต์น้ำในอ่างอย่างแม่นยำ: (ปริมาตรน้ำ / ความจุอ่าง) * 100
     const calculatedPercent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
 
     const capElem = document.getElementById('dam-capacity');
