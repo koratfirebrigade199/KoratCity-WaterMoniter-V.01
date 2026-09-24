@@ -216,15 +216,51 @@ function renderWaterLevelChart(stations) {
 }
 
 // ----------------------------------------------------
-// ระบบประมวลผลความเสี่ยงชุมชนอัตโนมัติ
+// รายชื่อชุมชนเสี่ยงในเขตเทศบาลนครนครราชสีมา (ริมลำน้ำลำตะคอง)
 // ----------------------------------------------------
 const COMMUNITIES = [
-    { name: 'ชุมชนมิตรภาพ ต.ลาดบัวขาว (อ.สีคิ้ว)', stationRef: 'M177', bankElevation: 243.30 },
-    { name: 'ชุมชนบ้านโนนค่า (อ.สูงเนิน)', stationRef: 'M192', bankElevation: 203.90 },
-    { name: 'ชุมชนโคกกรวด (อ.เมือง)', stationRef: 'M191', bankElevation: 195.30 },
-    { name: 'ชุมชนมิตรภาพ-ปรกเกล้า (ต.ในเมือง)', stationRef: 'M164', bankElevation: 177.60 },
-    { name: 'ชุมชนท่าน้ำวัดมงคลษกุณาราม (ต.ในเมือง)', stationRef: 'M164', bankElevation: 177.60 },
-    { name: 'ชุมชนตรอกสำโรงจันทร์ (ต.ในเมือง)', stationRef: 'M164', bankElevation: 177.20 }
+    { 
+        name: 'ชุมชนมิตรภาพ ซอย 4 / คุ้มวงษ์', 
+        stationRef: 'M164', 
+        bankElevation: 177.00,
+        desc: 'พื้นที่รับน้ำด่านแรกเมื่อน้ำเข้าเขตเทศบาลนครฯ'
+    },
+    { 
+        name: 'ชุมชนบุมะค่า / ท่าตะโก / สำโรงจันทร์', 
+        stationRef: 'M164', 
+        bankElevation: 177.20,
+        desc: 'จุดลุ่มต่ำลำน้ำโค้ง คอขวดลำตะคอง'
+    },
+    { 
+        name: 'ชุมชน VIP / โพธิ์ทอง / หลวงจิตร', 
+        stationRef: 'M164', 
+        bankElevation: 177.60,
+        desc: 'บริเวณจุดวัดระดับน้ำหลัก สถานี M.164 (สะพาน VIP)'
+    },
+    { 
+        name: 'ชุมชนเกษตรสามัคคี / วัดสุสาน', 
+        stationRef: 'M164', 
+        bankElevation: 177.30,
+        desc: 'พื้นที่ชุมชนหนาแน่นริมลำตะคองสายหลัก'
+    },
+    { 
+        name: 'โรงพยาบาลมหาราชนครราชสีมา', 
+        stationRef: 'M164', 
+        bankElevation: 177.80,
+        desc: 'พื้นที่ยุทธศาสตร์การแพทย์ เฝ้าระวังพนังกั้นน้ำ'
+    },
+    { 
+        name: 'ชุมชนหลังวัดสามัคคี / อบอุ่นพัฒนา', 
+        stationRef: 'M164', 
+        bankElevation: 177.10,
+        desc: 'โซนที่ลุ่มต่ำตอนกลางเมือง'
+    },
+    { 
+        name: 'ชุมชนมหาชัย-อุดมพร', 
+        stationRef: 'M164', 
+        bankElevation: 176.90,
+        desc: 'โซนรับน้ำปลายน้ำก่อนระบายออกนอกเขตเทศบาลฯ'
+    }
 ];
 
 function updateCommunityAlerts(stations, rain24h) {
@@ -245,14 +281,14 @@ function updateCommunityAlerts(stations, rain24h) {
         if (margin <= 0) {
             riskLevel = 'CRITICAL';
             label = `🔴 วิกฤต (ล้นตลิ่ง ${Math.abs(margin).toFixed(2)} ม.)`;
-            cardClass = 'bg-red-50 border-red-400 text-red-900';
+            cardClass = 'bg-red-50 border-red-400 text-red-900 shadow-sm animate-pulse';
             badgeClass = 'bg-red-600 text-white';
-        } else if (margin <= 0.5 || rain24h >= 90) {
+        } else if (margin <= 0.4 || rain24h >= 90) {
             riskLevel = 'WARNING';
             label = `🟠 เตือนภัย (ห่างตลิ่ง ${margin.toFixed(2)} ม.)`;
             cardClass = 'bg-orange-50 border-orange-400 text-orange-900';
             badgeClass = 'bg-orange-500 text-white';
-        } else if (margin <= 1.5 || rain24h >= 35) {
+        } else if (margin <= 1.2 || rain24h >= 35) {
             riskLevel = 'WATCH';
             label = `🟡 เฝ้าระวัง (ห่างตลิ่ง ${margin.toFixed(2)} ม.)`;
             cardClass = 'bg-amber-50 border-amber-400 text-amber-900';
@@ -260,24 +296,24 @@ function updateCommunityAlerts(stations, rain24h) {
         }
 
         const card = document.createElement('div');
-        card.className = `p-4 rounded-xl border ${cardClass} shadow-2xs flex flex-col justify-between gap-2.5`;
+        card.className = `p-4 rounded-xl border ${cardClass} transition duration-200 flex flex-col justify-between gap-3 backdrop-blur-xs`;
         card.innerHTML = `
             <div>
                 <div class="flex justify-between items-start gap-2">
-                    <h4 class="font-bold text-sm leading-snug">${c.name}</h4>
+                    <h4 class="font-bold text-sm leading-snug text-slate-900">${c.name}</h4>
                     <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${badgeClass} shrink-0">${riskLevel}</span>
                 </div>
-                <p class="text-xs opacity-75 mt-1">อ้างอิง: ${c.stationRef} | ตลิ่ง: ${c.bankElevation} ม.รทก.</p>
+                <p class="text-xs opacity-80 mt-1.5">${c.desc}</p>
+                <div class="mt-2 text-[11px] text-slate-500 flex items-center justify-between">
+                    <span>อ้างอิงสถานี: <strong>${c.stationRef}</strong></span>
+                    <span>ระดับตลิ่ง: <strong>${c.bankElevation.toFixed(2)}</strong> ม.รทก.</span>
+                </div>
             </div>
-            <div class="pt-2 border-t border-black/10 font-bold text-xs">
-                ${label}
+            <div class="pt-2 border-t border-black/10 font-bold text-xs flex justify-between items-center">
+                <span>สถานะ:</span>
+                <span>${label}</span>
             </div>
         `;
         alertGrid.appendChild(card);
     });
-}
-
-function updateStatusText(text) {
-    const updateElem = document.getElementById('last-update');
-    if (updateElem) updateElem.innerText = text;
 }
