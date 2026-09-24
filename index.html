@@ -101,11 +101,6 @@
                         <span class="text-xs text-slate-500">(สะสม 24 ชม.)</span>
                     </div>
                 </div>
-
-                <!-- กราฟปริมาณฝน -->
-                <div class="mt-4 h-28 w-full">
-                    <canvas id="rainChart"></canvas>
-                </div>
             </div>
 
         </div>
@@ -129,40 +124,17 @@
 
             <!-- ตารางสรุปการเปรียบเทียบระดับตลิ่ง -->
             <div id="water-level-details" class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-                <!-- โค้ด JavaScript จะ Render ตารางแสดงผลระดับน้ำใสตรงนี้ -->
+                <!-- JavaScript Render ข้อมูลตรงนี้ -->
             </div>
         </div>
-
-        <!-- Section: การวิเคราะห์สถานะการเฝ้าระวังภัยระดับชุมชนแบบอัตโนมัติ -->
-        <section class="bg-white p-5 sm:p-6 rounded-2xl shadow-xs border border-slate-200/80 space-y-4">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                <div>
-                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-                        🚨 สถานะการเฝ้าระวังภัยระดับชุมชน (แนวลุ่มน้ำลำตะคอง)
-                    </h2>
-                    <p class="text-xs text-slate-500 mt-0.5">ประมวลผลความเสี่ยงอัตโนมัติจากปริมาณฝน ระดับน้ำปัจจุบัน และระดับตลิ่งของชุมชน</p>
-                </div>
-                <div class="flex items-center gap-2 text-xs">
-                    <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> ปกติ</span>
-                    <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> เฝ้าระวัง</span>
-                    <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-orange-500"></span> เตือนภัย</span>
-                    <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-600"></span> วิกฤต</span>
-                </div>
-            </div>
-
-            <!-- Container การ์ดการแจ้งเตือนรายชุมชน -->
-            <div id="alert-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <!-- JavaScript จะสร้างความเสี่ยงของแต่ละชุมชนมาวางตรงนี้โดยอัตโนมัติ -->
-            </div>
-        </section>
 
     </main>
 
     <!-- Footer Section -->
     <footer class="bg-slate-900 text-slate-400 border-t border-slate-800 mt-10 py-6">
         <div class="max-w-7xl mx-auto px-4 text-center text-xs space-y-2">
-            <p>ระบบติดตามสถานการณ์น้ำและเตือนภัยลุ่มน้ำลำตะคอง © Korat City Water Monitor</p>
-            <p class="text-slate-500">เชื่อมโยงฐานข้อมูลสถิติสดจาก คลังข้อมูลน้ำแห่งชาติ (ThaiWater API) & กรมชลประทาน</p>
+            <p>ระบบติดตามสถานการณ์น้ำ ลุ่มน้ำลำตะคอง © Korat City Water Monitor</p>
+            <p class="text-slate-500">เชื่อมโยงฐานข้อมูลจาก คลังข้อมูลน้ำแห่งชาติ (ThaiWater API) & กรมชลประทาน</p>
         </div>
     </footer>
 
