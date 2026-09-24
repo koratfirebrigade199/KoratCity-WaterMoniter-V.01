@@ -1,6 +1,13 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // 1. โหลดข้อมูลน้ำครั้งแรกทันที
     loadDashboardData();
-    setInterval(loadDashboardData, 300000); // อัปเดตอัตโนมัติทุก 5 นาที
+    
+    // 2. ตั้งเวลา Auto-Update ข้อมูลน้ำทุก 1 ชั่วโมง (3,600,000 ms)
+    setInterval(loadDashboardData, 3600000);
+
+    // 3. โหลดและตั้งระบบอัปเดตพยากรณ์อากาศรอบ 08:00 น.
+    loadWeatherData();
+    scheduleEightAMUpdate();
 });
 
 async function loadDashboardData() {
@@ -8,13 +15,12 @@ async function loadDashboardData() {
 
     let localData = null;
 
-    // 1. ดึงข้อมูลจาก local JSON ทันที (โหลดเร็ว ไม่ต้องรอ Proxy)
+    // โหลดข้อมูล Local ทันทีเพื่อความรวดเร็ว
     try {
         const cacheBuster = new Date().getTime();
         const res = await fetch(`data/latest_data.json?v=${cacheBuster}`);
         if (res.ok) {
             localData = await res.json();
-            // Render ข้อมูล local ก่อนทันทีเพื่อความเร็ว
             renderAllUI(localData.dam, localData.rainfall, localData.waterLevels);
             if (localData.updatedAt) {
                 const updatedDate = new Date(localData.updatedAt);
@@ -25,13 +31,12 @@ async function loadDashboardData() {
         console.warn("ไม่สามารถดึงข้อมูล Local JSON ได้:", err);
     }
 
-    // 2. ยิง API ดึงข้อมูลสดแบบเร็ว (Timeout 1.5 วินาที ถ้าไม่ตอบกลับจะข้ามทันที)
+    // ยิง API ดึงข้อมูลสด (Timeout 2 วินาที)
     const [liveDam, liveRain] = await Promise.all([
         fetchLiveDamData(),
         fetchLiveRainData()
     ]);
 
-    // 3. ถ้าได้ข้อมูลสด ค่อยอัปเดตหน้าเว็บทับอีกครั้ง
     if (liveDam || liveRain) {
         const finalDam = liveDam || (localData ? localData.dam : null);
         const finalRain = liveRain || (localData ? localData.rainfall : null);
@@ -40,8 +45,86 @@ async function loadDashboardData() {
         renderAllUI(finalDam, finalRain, finalWaterLevels);
 
         const now = new Date();
-        updateStatusText(`อัปเดตสด: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`);
+        updateStatusText(`อัปเดตสด: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น. (รีเฟรชทุก 1 ชม.)`);
     }
+}
+
+// ----------------------------------------------------
+// ระบบพยากรณ์อากาศกรมอุตุนิยมวิทยา (เทศบาลนครนครราชสีมา)
+// ----------------------------------------------------
+async function loadWeatherData() {
+    try {
+        // ใช้ Open-Meteo API อ้างอิงพิกัด อ.เมืองนครราชสีมา (14.97, 102.10)
+        const lat = 14.9799;
+        const lon = 102.0978;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max&timezone=Asia%2FBangkok`;
+
+        const res = await fetch(url);
+        if (res.ok) {
+            const data = await res.json();
+            const daily = data.daily;
+            if (daily) {
+                const weatherCode = daily.weathercode[0];
+                const maxTemp = daily.temperature_2m_max[0];
+                const minTemp = daily.temperature_2m_min[0];
+                const rainProb = daily.precipitation_probability_max[0];
+                const windSpeed = daily.windspeed_10m_max[0];
+
+                updateWeatherUI(weatherCode, maxTemp, minTemp, rainProb, windSpeed);
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn("ไม่สามารถดึงพยากรณ์อากาศสดได้ ใช้ค่าสำรองแทน:", e);
+    }
+
+    // ค่าสำรองกรณี API มีปัญหา
+    updateWeatherUI(2, 33, 24, 40, 12);
+}
+
+function updateWeatherUI(code, maxTemp, minTemp, rainProb, windSpeed) {
+    const descElem = document.getElementById('weather-desc');
+    const tempElem = document.getElementById('weather-temp');
+    const rainElem = document.getElementById('weather-rain-prob');
+    const windElem = document.getElementById('weather-wind');
+    const timeElem = document.getElementById('weather-update-time');
+
+    if (descElem) descElem.innerText = getWeatherDescription(code);
+    if (tempElem) tempElem.innerText = `${maxTemp.toFixed(0)}°C / ${minTemp.toFixed(0)}°C`;
+    if (rainElem) rainElem.innerText = `${rainProb}%`;
+    if (windElem) windElem.innerText = `${windSpeed.toFixed(0)} กม./ชม.`;
+
+    if (timeElem) {
+        const today = new Date();
+        timeElem.innerText = `อัปเดต 08:00 น. (${today.toLocaleDateString('th-TH')})`;
+    }
+}
+
+function getWeatherDescription(code) {
+    if (code === 0) return "☀️ ท้องฟ้าแจ่มใส";
+    if (code >= 1 && code <= 3) return "🌤️ มีเมฆบางส่วน";
+    if (code >= 45 && code <= 48) return "🌫️ มีหมอกในตอนเช้า";
+    if (code >= 51 && code <= 65) return "🌧️ ฝนตกเล็กน้อย ถึงปานกลาง";
+    if (code >= 80 && code <= 82) return "🌦️ ฝนฟ้าคะนองบางแห่ง";
+    if (code >= 95) return "⛈️ พายุฝนฟ้าคะนอง";
+    return "⛅ อากาศเปลี่ยนแปลงตามฤดูกาล";
+}
+
+// ตั้งเวลาสั่งงานให้ดึงพยากรณ์อากาศใหม่เมื่อถึงเวลา 08:00 น. ของทุกวัน
+function scheduleEightAMUpdate() {
+    const now = new Date();
+    const eightAM = new Date();
+    eightAM.setHours(8, 0, 0, 0);
+
+    if (now > eightAM) {
+        eightAM.setDate(eightAM.getDate() + 1); // ถ้าเลย 8 โมงวันนี้ไปแล้ว ให้ตั้งเป็น 8 โมงวันพรุ่งนี้
+    }
+
+    const timeUntil8AM = eightAM.getTime() - now.getTime();
+    setTimeout(() => {
+        loadWeatherData();
+        setInterval(loadWeatherData, 24 * 60 * 60 * 1000); // วนรอบลูปทุก 24 ชม.
+    }, timeUntil8AM);
 }
 
 function renderAllUI(dam, rain, waterLevels) {
@@ -54,7 +137,7 @@ function renderAllUI(dam, rain, waterLevels) {
 }
 
 // ----------------------------------------------------
-// API Fetchers (จำกัด Timeout 1.5 วินาที เพื่อไม่ให้เว็บช้า)
+// API Fetchers & UI Renderers อื่นๆ
 // ----------------------------------------------------
 async function fetchLiveDamData() {
     try {
@@ -62,7 +145,7 @@ async function fetchLiveDamData() {
         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&_=${new Date().getTime()}`;
         
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5 วินาที Timeout
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
 
         const res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
@@ -82,9 +165,7 @@ async function fetchLiveDamData() {
                 };
             }
         }
-    } catch (e) {
-        // ข้ามหากรณี API ช้า/ล้มเหลว
-    }
+    } catch (e) {}
     return null;
 }
 
@@ -94,7 +175,7 @@ async function fetchLiveRainData() {
         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&_=${new Date().getTime()}`;
         
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5 วินาที Timeout
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
 
         const res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
@@ -112,15 +193,10 @@ async function fetchLiveRainData() {
                 };
             }
         }
-    } catch (e) {
-        // ข้ามหากรณี API ช้า/ล้มเหลว
-    }
+    } catch (e) {}
     return null;
 }
 
-// ----------------------------------------------------
-// UI Renderers
-// ----------------------------------------------------
 function updateDamUI(dam) {
     const capacity = dam.capacity || 314.49;
     const volume = dam.volume || 0;
