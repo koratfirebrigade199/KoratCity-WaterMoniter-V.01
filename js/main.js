@@ -10,7 +10,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (document.visibilityState === 'visible') {
             const lastFetch = localStorage.getItem('last_fetch_time');
             const now = new Date().getTime();
-            // ถ้าดึงครั้งล่าสุดเกิน 1 ชม. (3600 วิ) ให้ดึงใหม่ทันที
             if (!lastFetch || (now - parseInt(lastFetch)) > 3600000) {
                 loadDashboardData();
             }
@@ -39,7 +38,7 @@ async function loadDashboardData() {
         console.warn("ไม่สามารถดึง Local JSON ได้:", err);
     }
 
-    // 2. ดึงข้อมูลสดผ่าน Multi-CORS Proxy สลับอัตโนมัติหากติดปัญหา
+    // 2. ดึงข้อมูลสดผ่าน Multi-CORS Proxy
     const [liveDam, liveRain, liveWater] = await Promise.all([
         fetchLiveDamData(),
         fetchLiveRainData(),
@@ -72,7 +71,7 @@ async function fetchWithFallback(targetUrl) {
     for (const proxy of proxies) {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 4000); // ให้เวลา 4 วินาที
+            const timeoutId = setTimeout(() => controller.abort(), 4000);
 
             const res = await fetch(`${proxy}&_t=${new Date().getTime()}`, { signal: controller.signal });
             clearTimeout(timeoutId);
@@ -217,7 +216,7 @@ function scheduleEightAMUpdate() {
 }
 
 // ----------------------------------------------------
-// UI Renderers & Chart
+// UI Renderers, Community Alerts & Chart
 // ----------------------------------------------------
 function renderAllUI(dam, rain, waterLevels) {
     if (dam) updateDamUI(dam);
@@ -225,6 +224,7 @@ function renderAllUI(dam, rain, waterLevels) {
     if (waterLevels) {
         updateWaterLevelUI(waterLevels);
         renderWaterLevelChart(waterLevels);
+        renderCommunityAlerts(waterLevels, rain);
     }
 }
 
@@ -277,6 +277,129 @@ function updateWaterLevelUI(stations) {
         `;
     });
     container.innerHTML = html;
+}
+
+// ----------------------------------------------------
+// ระบบประเมินและแจ้งเตือนภัยรายชุมชนตลอดแนวลุ่มน้ำ
+// ----------------------------------------------------
+function renderCommunityAlerts(waterLevels, rain) {
+    const alertGrid = document.getElementById('community-alert-grid');
+    if (!alertGrid) return;
+
+    // สถานีอ้างอิง
+    const stM191 = waterLevels.M191 || { level: 0, bank: 195.30 }; // โคกกรวด (ตอนบนก่อนเข้าเมือง)
+    const stM164 = waterLevels.M164 || { level: 0, bank: 177.60 }; // VIP (ใจกลางเมือง)
+    const rainAmount = rain ? (rain.rain24h || 0) : 0;
+
+    // รายชื่อชุมชน เรียงตามลำดับการไหลของน้ำ (ตะวันตก -> ตะวันออก)
+    const communities = [
+        {
+            name: "ชุมชนมิตรภาพ ซ.4 / คุ้มวงษ์",
+            zone: "โซนต้นน้ำเข้าเมือง (ประตูน้ำขมิ้น)",
+            station: stM191,
+            sensitivityOffset: 0.2 // พื้นที่ต่ำ รับน้ำไว
+        },
+        {
+            name: "ชุมชนบุมะค่า / ท่าตะโก / สำโรงจันทร์",
+            zone: "โซนตะวันตก (ต.ในเมือง)",
+            station: stM191,
+            sensitivityOffset: 0.1
+        },
+        {
+            name: "ชุมชน VIP / โพธิ์ทอง / หลวงจิตร",
+            zone: "โซนกลางเมือง (สถานี M.164)",
+            station: stM164,
+            sensitivityOffset: 0.0
+        },
+        {
+            name: "รพ.มหาราชนครราชสีมา",
+            zone: "พื้นที่วิกฤตสำคัญ (ศูนย์การแพทย์)",
+            station: stM164,
+            sensitivityOffset: -0.2 // เฝ้าระวังเข้มงวดเป็นพิเศษ
+        },
+        {
+            name: "ชุมชนหลังวัดสามัคคี / อบอุ่นพัฒนา",
+            zone: "โซนกลางเมือง-ทิศเหนือ",
+            station: stM164,
+            sensitivityOffset: 0.1
+        },
+        {
+            name: "ชุมชนมหาชัย-อุดมพร",
+            zone: "โซนท้ายเมือง (ก่อนออกสู่ มทส./จงฮัว)",
+            station: stM164,
+            sensitivityOffset: 0.2
+        }
+    ];
+
+    let html = '';
+
+    communities.forEach(item => {
+        const st = item.station;
+        // คำนวณระยะห่างระดับน้ำเทียบตลิ่ง (บวกความไวพื้นที่)
+        const effectiveMargin = (st.bank - st.level) + item.sensitivityOffset;
+        
+        let status = 'normal'; // normal, warning_low, warning_mid, critical
+        let badgeBg = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+        let badgeIcon = '🟢 Normal';
+        let badgeTitle = 'ปกติ';
+        let advice = 'ระดับน้ำอยู่ในเกณฑ์ปลอดภัย ดำเนินชีวิตตามปกติ';
+
+        // คำนวณเงื่อนไขแจ้งเตือน
+        if (effectiveMargin <= 0 || (st.level >= st.bank)) {
+            status = 'critical';
+            badgeBg = 'bg-red-100 text-red-900 border-red-300 font-bold animate-pulse';
+            badgeIcon = '🔴 CRITICAL';
+            badgeTitle = 'วิกฤต (ล้นตลิ่ง)';
+            advice = 'ยกของขึ้นที่สูงทันที! เตรียมพร้อมอพยพตามแผนป้องกันภัย';
+        } else if (effectiveMargin < 0.5 || rainAmount > 70) {
+            status = 'warning_mid';
+            badgeBg = 'bg-amber-100 text-amber-900 border-amber-300 font-bold';
+            badgeIcon = '🟠 WARNING';
+            badgeTitle = 'เตือนภัยระดับสูง';
+            advice = 'น้ำใกล้ล้นตลิ่ง เคลื่อนย้ายทรัพย์สินและยานพาหนะขึ้นที่สูง';
+        } else if (effectiveMargin < 1.0 || rainAmount > 35) {
+            status = 'warning_low';
+            badgeBg = 'bg-yellow-100 text-yellow-900 border-yellow-300';
+            badgeIcon = '🟡 WATCH';
+            badgeTitle = 'เฝ้าระวังพิเศษ';
+            advice = 'ติดตามข่าวสารและระดับน้ำอย่างใกล้ชิด ตรวจสอบกระสอบทราย';
+        }
+
+        const marginDisplay = (st.bank - st.level).toFixed(2);
+
+        html += `
+            <div class="p-4 rounded-xl border bg-slate-50/50 hover:bg-white transition shadow-xs flex flex-col justify-between">
+                <div>
+                    <div class="flex items-start justify-between gap-2 mb-1.5">
+                        <h3 class="font-bold text-slate-800 text-sm leading-snug">${item.name}</h3>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full border ${badgeBg} whitespace-nowrap">
+                            ${badgeIcon}
+                        </span>
+                    </div>
+                    <p class="text-[11px] text-slate-500 mb-3">${item.zone}</p>
+                    
+                    <div class="text-xs space-y-1 bg-white p-2.5 rounded-lg border border-slate-100 mb-3">
+                        <div class="flex justify-between">
+                            <span class="text-slate-500">ระดับน้ำเทียบตลิ่ง:</span>
+                            <span class="font-bold ${st.level >= st.bank ? 'text-red-600' : 'text-slate-700'}">
+                                ${st.level >= st.bank ? `ล้นตลิ่ง ${Math.abs(marginDisplay)} ม.` : `ต่ำกว่าตลิ่ง ${marginDisplay} ม.`}
+                            </span>
+                        </div>
+                        <div class="flex justify-between text-[11px]">
+                            <span class="text-slate-400">สถานีอ้างอิง:</span>
+                            <span class="text-slate-600">${st.code || 'M.164'} (${st.level.toFixed(2)} ม.รทก.)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-[11px] pt-2 border-t border-slate-200/60 font-medium ${status === 'critical' ? 'text-red-700 font-bold' : status === 'warning_mid' ? 'text-amber-800' : 'text-slate-600'}">
+                    💡 ${advice}
+                </div>
+            </div>
+        `;
+    });
+
+    alertGrid.innerHTML = html;
 }
 
 function renderWaterLevelChart(stations) {
