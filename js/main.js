@@ -1,54 +1,60 @@
 document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData();
-    setInterval(loadDashboardData, 300000); // อัปเดตทุก 5 นาที
+    setInterval(loadDashboardData, 300000); // อัปเดตอัตโนมัติทุก 5 นาที
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังโหลดข้อมูลล่าสุด...");
+    updateStatusText("⏳ กำลังโหลดข้อมูล...");
 
-    // 1. ดึงข้อมูลหลักจาก local JSON ก่อนเสมอ (การันตีว่าเว็บจะไม่ค้าง/ไม่ขาว)
     let localData = null;
+
+    // 1. ดึงข้อมูลจาก local JSON ทันที (โหลดเร็ว ไม่ต้องรอ Proxy)
     try {
         const cacheBuster = new Date().getTime();
         const res = await fetch(`data/latest_data.json?v=${cacheBuster}`);
         if (res.ok) {
             localData = await res.json();
+            // Render ข้อมูล local ก่อนทันทีเพื่อความเร็ว
+            renderAllUI(localData.dam, localData.rainfall, localData.waterLevels);
+            if (localData.updatedAt) {
+                const updatedDate = new Date(localData.updatedAt);
+                updateStatusText(`ข้อมูลล่าสุด: ${updatedDate.toLocaleDateString('th-TH')} ${updatedDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`);
+            }
         }
     } catch (err) {
-        console.warn("ไม่สามารถดึงข้อมูลLocal JSON ได้:", err);
+        console.warn("ไม่สามารถดึงข้อมูล Local JSON ได้:", err);
     }
 
-    // 2. พยายามยิงดึงข้อมูลสดจาก API (ถ้าดึงไม่ได้จะเงียบๆ แล้วใช้ Local JSON แทน)
-    let liveDam = await fetchLiveDamData();
-    let liveRain = await fetchLiveRainData();
+    // 2. ยิง API ดึงข้อมูลสดแบบเร็ว (Timeout 1.5 วินาที ถ้าไม่ตอบกลับจะข้ามทันที)
+    const [liveDam, liveRain] = await Promise.all([
+        fetchLiveDamData(),
+        fetchLiveRainData()
+    ]);
 
-    // 3. รวมข้อมูล (ถ้า API สดได้ผล ให้ใช้ API สด ถ้าไม่ได้ให้ใช้ Local JSON)
-    const finalDam = liveDam || (localData ? localData.dam : null);
-    const finalRain = liveRain || (localData ? localData.rainfall : null);
-    const finalWaterLevels = localData ? localData.waterLevels : null;
+    // 3. ถ้าได้ข้อมูลสด ค่อยอัปเดตหน้าเว็บทับอีกครั้ง
+    if (liveDam || liveRain) {
+        const finalDam = liveDam || (localData ? localData.dam : null);
+        const finalRain = liveRain || (localData ? localData.rainfall : null);
+        const finalWaterLevels = localData ? localData.waterLevels : null;
 
-    // 4. Render แสดงผลบน UI
-    if (finalDam) updateDamUI(finalDam);
-    if (finalRain) updateRainUI(finalRain);
-    if (finalWaterLevels) {
-        updateWaterLevelUI(finalWaterLevels);
-        renderWaterLevelChart(finalWaterLevels);
-        
-        // วิเคราะห์การเตือนภัยชุมชนอัตโนมัติ
-        const rainVal = finalRain ? finalRain.rain24h : 0;
-        updateCommunityAlerts(finalWaterLevels, rainVal);
-    }
+        renderAllUI(finalDam, finalRain, finalWaterLevels);
 
-    // 5. แสดงเวลาอัปเดตบนหน้าจอ
-    const updateElem = document.getElementById('last-update');
-    if (updateElem) {
         const now = new Date();
-        updateElem.innerText = `อัปเดตข้อมูล: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`;
+        updateStatusText(`อัปเดตสด: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`);
+    }
+}
+
+function renderAllUI(dam, rain, waterLevels) {
+    if (dam) updateDamUI(dam);
+    if (rain) updateRainUI(rain);
+    if (waterLevels) {
+        updateWaterLevelUI(waterLevels);
+        renderWaterLevelChart(waterLevels);
     }
 }
 
 // ----------------------------------------------------
-// API Fetchers (มี Try-Catch ป้องกันระบบล่ม)
+// API Fetchers (จำกัด Timeout 1.5 วินาที เพื่อไม่ให้เว็บช้า)
 // ----------------------------------------------------
 async function fetchLiveDamData() {
     try {
@@ -56,7 +62,7 @@ async function fetchLiveDamData() {
         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&_=${new Date().getTime()}`;
         
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000); // Timeout ใน 4 วินาที
+        const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5 วินาที Timeout
 
         const res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
@@ -77,7 +83,7 @@ async function fetchLiveDamData() {
             }
         }
     } catch (e) {
-        console.log("ใช้ข้อมูลสำรองเขื่อนแทน API");
+        // ข้ามหากรณี API ช้า/ล้มเหลว
     }
     return null;
 }
@@ -88,7 +94,7 @@ async function fetchLiveRainData() {
         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&_=${new Date().getTime()}`;
         
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5 วินาที Timeout
 
         const res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
@@ -107,13 +113,13 @@ async function fetchLiveRainData() {
             }
         }
     } catch (e) {
-        console.log("ใช้ข้อมูลสำรองฝนแทน API");
+        // ข้ามหากรณี API ช้า/ล้มเหลว
     }
     return null;
 }
 
 // ----------------------------------------------------
-// UI Renderers & Calculations
+// UI Renderers
 // ----------------------------------------------------
 function updateDamUI(dam) {
     const capacity = dam.capacity || 314.49;
@@ -121,7 +127,7 @@ function updateDamUI(dam) {
     const percent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
 
     if (document.getElementById('dam-capacity')) document.getElementById('dam-capacity').innerText = capacity.toFixed(2);
-    if (document.getElementById('dam-volume')) document.getElementById('dam-volume').innerHTML = `${volume.toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม.</span>`;
+    if (document.getElementById('dam-volume')) document.getElementById('dam-volume').innerHTML = `${volume.toFixed(2)} <span class="text-xs font-normal text-slate-500">มล.ลบ.ม.</span>`;
     if (document.getElementById('dam-percent')) document.getElementById('dam-percent').innerText = `${percent}%`;
     if (document.getElementById('dam-inflow')) document.getElementById('dam-inflow').innerText = Number(dam.inflow || 0).toFixed(2);
     if (document.getElementById('dam-outflow')) document.getElementById('dam-outflow').innerText = Number(dam.outflow || 0).toFixed(2);
@@ -129,7 +135,7 @@ function updateDamUI(dam) {
 
 function updateRainUI(rain) {
     if (document.getElementById('rain-station-name')) document.getElementById('rain-station-name').innerText = rain.stationName || "ต.หนองไผ่ล้อม";
-    if (document.getElementById('rain-24h')) document.getElementById('rain-24h').innerHTML = `${Number(rain.rain24h || 0).toFixed(1)} <span class="text-xs font-normal">มม.</span>`;
+    if (document.getElementById('rain-24h')) document.getElementById('rain-24h').innerHTML = `${Number(rain.rain24h || 0).toFixed(1)} <span class="text-xs font-normal text-slate-500">มม.</span>`;
     
     let statusText = "ไม่มีฝนตก";
     if (rain.rain24h > 90) statusText = "🌧️ ฝนตกหนักมาก";
@@ -215,105 +221,7 @@ function renderWaterLevelChart(stations) {
     });
 }
 
-// ----------------------------------------------------
-// รายชื่อชุมชนเสี่ยงในเขตเทศบาลนครนครราชสีมา (ริมลำน้ำลำตะคอง)
-// ----------------------------------------------------
-const COMMUNITIES = [
-    { 
-        name: 'ชุมชนมิตรภาพ ซอย 4 / คุ้มวงษ์', 
-        stationRef: 'M164', 
-        bankElevation: 177.00,
-        desc: 'พื้นที่รับน้ำด่านแรกเมื่อน้ำเข้าเขตเทศบาลนครฯ'
-    },
-    { 
-        name: 'ชุมชนบุมะค่า / ท่าตะโก / สำโรงจันทร์', 
-        stationRef: 'M164', 
-        bankElevation: 177.20,
-        desc: 'จุดลุ่มต่ำลำน้ำโค้ง คอขวดลำตะคอง'
-    },
-    { 
-        name: 'ชุมชน VIP / โพธิ์ทอง / หลวงจิตร', 
-        stationRef: 'M164', 
-        bankElevation: 177.60,
-        desc: 'บริเวณจุดวัดระดับน้ำหลัก สถานี M.164 (สะพาน VIP)'
-    },
-    { 
-        name: 'ชุมชนเกษตรสามัคคี / วัดสุสาน', 
-        stationRef: 'M164', 
-        bankElevation: 177.30,
-        desc: 'พื้นที่ชุมชนหนาแน่นริมลำตะคองสายหลัก'
-    },
-    { 
-        name: 'โรงพยาบาลมหาราชนครราชสีมา', 
-        stationRef: 'M164', 
-        bankElevation: 177.80,
-        desc: 'พื้นที่ยุทธศาสตร์การแพทย์ เฝ้าระวังพนังกั้นน้ำ'
-    },
-    { 
-        name: 'ชุมชนหลังวัดสามัคคี / อบอุ่นพัฒนา', 
-        stationRef: 'M164', 
-        bankElevation: 177.10,
-        desc: 'โซนที่ลุ่มต่ำตอนกลางเมือง'
-    },
-    { 
-        name: 'ชุมชนมหาชัย-อุดมพร', 
-        stationRef: 'M164', 
-        bankElevation: 176.90,
-        desc: 'โซนรับน้ำปลายน้ำก่อนระบายออกนอกเขตเทศบาลฯ'
-    }
-];
-
-function updateCommunityAlerts(stations, rain24h) {
-    const alertGrid = document.getElementById('alert-grid');
-    if (!alertGrid) return;
-    alertGrid.innerHTML = '';
-
-    COMMUNITIES.forEach(c => {
-        const st = stations[c.stationRef];
-        const currentWater = st ? st.level : 0;
-        const margin = c.bankElevation - currentWater;
-
-        let riskLevel = 'NORMAL';
-        let label = `🟢 ปกติ (ต่ำกว่าตลิ่ง ${margin.toFixed(2)} ม.)`;
-        let cardClass = 'bg-emerald-50/60 border-emerald-300 text-emerald-900';
-        let badgeClass = 'bg-emerald-600 text-white';
-
-        if (margin <= 0) {
-            riskLevel = 'CRITICAL';
-            label = `🔴 วิกฤต (ล้นตลิ่ง ${Math.abs(margin).toFixed(2)} ม.)`;
-            cardClass = 'bg-red-50 border-red-400 text-red-900 shadow-sm animate-pulse';
-            badgeClass = 'bg-red-600 text-white';
-        } else if (margin <= 0.4 || rain24h >= 90) {
-            riskLevel = 'WARNING';
-            label = `🟠 เตือนภัย (ห่างตลิ่ง ${margin.toFixed(2)} ม.)`;
-            cardClass = 'bg-orange-50 border-orange-400 text-orange-900';
-            badgeClass = 'bg-orange-500 text-white';
-        } else if (margin <= 1.2 || rain24h >= 35) {
-            riskLevel = 'WATCH';
-            label = `🟡 เฝ้าระวัง (ห่างตลิ่ง ${margin.toFixed(2)} ม.)`;
-            cardClass = 'bg-amber-50 border-amber-400 text-amber-900';
-            badgeClass = 'bg-amber-500 text-white';
-        }
-
-        const card = document.createElement('div');
-        card.className = `p-4 rounded-xl border ${cardClass} transition duration-200 flex flex-col justify-between gap-3 backdrop-blur-xs`;
-        card.innerHTML = `
-            <div>
-                <div class="flex justify-between items-start gap-2">
-                    <h4 class="font-bold text-sm leading-snug text-slate-900">${c.name}</h4>
-                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${badgeClass} shrink-0">${riskLevel}</span>
-                </div>
-                <p class="text-xs opacity-80 mt-1.5">${c.desc}</p>
-                <div class="mt-2 text-[11px] text-slate-500 flex items-center justify-between">
-                    <span>อ้างอิงสถานี: <strong>${c.stationRef}</strong></span>
-                    <span>ระดับตลิ่ง: <strong>${c.bankElevation.toFixed(2)}</strong> ม.รทก.</span>
-                </div>
-            </div>
-            <div class="pt-2 border-t border-black/10 font-bold text-xs flex justify-between items-center">
-                <span>สถานะ:</span>
-                <span>${label}</span>
-            </div>
-        `;
-        alertGrid.appendChild(card);
-    });
+function updateStatusText(text) {
+    const updateElem = document.getElementById('last-update');
+    if (updateElem) updateElem.innerText = text;
 }
