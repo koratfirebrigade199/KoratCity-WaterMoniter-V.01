@@ -28,8 +28,7 @@ async function fetchData() {
                 name: "อ่างเก็บน้ำลำตะคอง ต.คลองไผ่ อ.สีคิ้ว",
                 sourceUrl: "https://www.thaiwater.net/water/dam/large",
                 capacity: 314.49,
-                volume: 248.65, 
-                percent: 79.06, 
+                volume: 248.65,
                 inflow: 1.08, 
                 outflow: 0.39 
             },
@@ -96,22 +95,28 @@ function updateRainSection(rainData) {
     }
 }
 
-// อัปเดตข้อมูลการแสดงผลอ่างเก็บน้ำลำตะคอง ตามมาตรฐาน ThaiWater
+// อัปเดตและคำนวณ % น้ำในอ่างเก็บน้ำลำตะคองอัตโนมัติ
 function updateDamSection(damData) {
+    const capacity = damData.capacity || 314.49;
+    const volume = damData.volume || 0;
+    
+    // คำนวณเปอร์เซ็นต์อัตโนมัติ: (น้ำในอ่าง / ความจุอ่าง) * 100
+    const calculatedPercent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
+
     const capElem = document.getElementById('dam-capacity');
-    if (capElem && damData.capacity) capElem.innerText = damData.capacity;
+    if (capElem) capElem.innerText = capacity.toFixed(2);
 
     const volElem = document.getElementById('dam-volume');
-    if (volElem) volElem.innerHTML = `${damData.volume} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม.</span>`;
+    if (volElem) volElem.innerHTML = `${volume.toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม.</span>`;
     
     const pctElem = document.getElementById('dam-percent');
-    if (pctElem) pctElem.innerText = `${damData.percent}%`;
+    if (pctElem) pctElem.innerText = `${calculatedPercent}%`;
     
     const inflowElem = document.getElementById('dam-inflow');
-    if (inflowElem) inflowElem.innerHTML = `${damData.inflow} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
+    if (inflowElem) inflowElem.innerHTML = `${Number(damData.inflow).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
     
     const outflowElem = document.getElementById('dam-outflow');
-    if (outflowElem) outflowElem.innerHTML = `${damData.outflow} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
+    if (outflowElem) outflowElem.innerHTML = `${Number(damData.outflow).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
 
     const sourceLink = document.getElementById('dam-source-link');
     if (sourceLink && damData.sourceUrl) {
