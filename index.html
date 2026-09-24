@@ -3,195 +3,170 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบติดตามระดับน้ำและแจ้งเตือนภัยน้ำท่วม - เทศบาลนครนครราชสีมา</title>
-    <!-- Tailwind CSS & Google Fonts -->
+    <title>ระบบเฝ้าระวังและติดตามสถานการณ์น้ำ ลุ่มน้ำลำตะคอง</title>
+    
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="css/styles.css">
+    
+    <!-- Google Fonts: Prompt -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            background-color: #f8fafc;
+        }
+    </style>
 </head>
-<body class="bg-slate-100 text-slate-800 font-['Sarabun'] min-h-screen flex flex-col">
+<body class="text-slate-800 antialiased min-h-screen flex flex-col">
 
-    <!-- Header (Blue Modern Theme) -->
-    <header class="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 text-white shadow-md sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-3">
-            <div class="flex items-center space-x-3 text-center sm:text-left">
-                <div class="bg-white/10 p-2.5 rounded-xl backdrop-blur-sm hidden sm:block">
-                    <svg class="w-7 h-7 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+    <!-- Header Section -->
+    <header class="bg-gradient-to-r from-sky-700 via-blue-800 to-indigo-900 text-white shadow-md">
+        <div class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="p-2.5 bg-white/10 rounded-2xl backdrop-blur-md border border-white/20">
+                    🌊
                 </div>
                 <div>
-                    <h1 class="text-base sm:text-lg md:text-xl font-bold tracking-tight text-white">ระบบติดตามระดับน้ำและแจ้งเตือนภัยน้ำท่วม</h1>
-                    <p class="text-xs text-blue-200">งานศูนย์ป้องกันและบรรเทาสาธารณภัย เทศบาลนครนครราชสีมา</p>
+                    <h1 class="text-xl sm:text-2xl font-bold tracking-tight">ระบบติดตามสถานการณ์น้ำ ลุ่มน้ำลำตะคอง</h1>
+                    <p class="text-xs sm:text-sm text-sky-200 mt-0.5">ศูนย์ปฏิบัติการเฝ้าระวังและเตือนภัยน้ำท่วม เมืองนครราชสีมา</p>
                 </div>
             </div>
-            <div class="flex items-center gap-3 text-xs md:text-sm">
-                <a href="tel:199" class="bg-red-600 hover:bg-red-700 text-white font-bold px-3.5 py-1.5 rounded-lg shadow-sm transition flex items-center gap-1.5">
-                    <span>📞 สายด่วน 199</span>
-                </a>
-                <a href="tel:044242222" class="bg-white/15 hover:bg-white/25 text-white px-3 py-1.5 rounded-lg border border-white/20 transition">
-                    ☎️ 0-4424-2222
-                </a>
+            <div class="text-right">
+                <span id="last-update" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-white/10 border border-white/20 text-sky-100 backdrop-blur-xs">
+                    ⏳ กำลังดึงข้อมูล...
+                </span>
             </div>
         </div>
     </header>
 
-    <!-- Main Container -->
-    <main class="flex-grow max-w-7xl mx-auto px-4 py-5 w-full space-y-6">
+    <!-- Main Content Grid -->
+    <main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 space-y-6 flex-grow w-full">
 
-        <!-- Banner แจ้งเตือนภัยระดับชุมชน (ข้อ 5) -->
-        <section class="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200/80">
-            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-                <div>
-                    <h2 class="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                        <span class="relative flex h-3 w-3">
-                          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                          <span class="relative inline-flex rounded-full h-3 w-3 bg-blue-600"></span>
-                        </span>
-                        สถานะการเฝ้าระวังภัยระดับชุมชน (แนวลุ่มน้ำลำตะคอง)
-                    </h2>
-                    <p class="text-xs text-slate-500 mt-0.5">ประเมินความเสี่ยงอ้างอิงระดับตลิ่งเฉพาะพื้นที่และปริมาณฝนสะสม</p>
-                </div>
-                <span class="text-xs font-mono text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200" id="last-update">กำลังโหลด...</span>
-            </div>
-            
-            <div id="alert-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <!-- Javascript จะ Render บัตรเตือนภัยให้ที่นี่ -->
-            </div>
-        </section>
-
-        <!-- Grid ข้อมูลสถานี & เขื่อน -->
+        <!-- Grid 1: เขื่อนลำตะคอง & สถานีฝนหนองไผ่ล้อม -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-            <!-- 1. ข้อมูลปริมาณน้ำฝน สถานี ต.หนองไผ่ล้อม (ข้อ 1) -->
-            <section class="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200/80 flex flex-col justify-between">
-                <div>
-                    <div class="flex justify-between items-start mb-3">
-                        <div>
-                            <h3 class="font-bold text-slate-800 text-sm sm:text-base">สถานีวัดน้ำฝน ต.หนองไผ่ล้อม</h3>
-                            <p class="text-xs text-slate-500">อ.เมือง จ.นครราชสีมา</p>
-                        </div>
-                        <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono border border-slate-200">14.9683, 102.0860</span>
+            
+            <!-- การ์ดเขื่อนลำตะคอง (กว้าง 2 ส่วน) -->
+            <div class="lg:col-span-2 bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 sm:p-6 transition hover:shadow-md">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <span class="text-xs font-semibold text-blue-600 uppercase tracking-wider bg-blue-50 px-2.5 py-1 rounded-md">อ่างเก็บน้ำขนาดใหญ่</span>
+                        <h2 class="text-lg font-bold text-slate-800 mt-1.5">เขื่อนลำตะคอง (ต.คลองไผ่ อ.สีคิ้ว)</h2>
                     </div>
-
-                    <div class="grid grid-cols-2 gap-2 my-3">
-                        <div class="p-3 bg-blue-50/70 border border-blue-100 rounded-xl">
-                            <p class="text-[11px] text-blue-700 font-medium">ฝนสะสม 24 ชั่วโมง</p>
-                            <p class="text-xl sm:text-2xl font-bold text-blue-900 mt-0.5" id="rain-24h">0.0 <span class="text-xs font-normal">มม.</span></p>
-                        </div>
-                        <div class="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                            <p class="text-[11px] text-slate-500 font-medium">สภาวะฝนประจำวัน</p>
-                            <p class="text-xs sm:text-sm font-bold text-slate-700 mt-1" id="rain-status">กำลังประมวลผล</p>
-                        </div>
-                    </div>
-
-                    <p class="text-xs font-semibold text-slate-700 mb-2">กราฟปริมาณฝนรายชั่วโมง (24 ชม. ย้อนหลัง)</p>
-                    <div class="h-44">
-                        <canvas id="rainChart"></canvas>
-                    </div>
-                </div>
-                <div class="mt-3 pt-2 border-t border-slate-100 text-right">
-                    <a href="https://nakhonratchasima.thaiwater.net/rainfall" target="_blank" class="text-[11px] text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1">
-                        🔗 ที่มา: คลังข้อมูลน้ำจังหวัดนครราชสีมา (ThaiWater)
+                    <a id="dam-source-link" href="https://nakhonratchasima.thaiwater.net/dam" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-600 hover:text-sky-800 hover:underline flex items-center gap-1">
+                        ที่มาข้อมูล 🔗
                     </a>
                 </div>
-            </section>
 
-            <!-- 2. ข้อมูลเขื่อนลำตะคอง (อ้างอิง ThaiWater) -->
-            <section class="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200/80 flex flex-col justify-between">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-2">
+                    <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-100">
+                        <p class="text-xs text-slate-500 mb-1">ความจุอ่างเก็บน้ำ</p>
+                        <p class="text-lg sm:text-xl font-bold text-slate-700"><span id="dam-capacity">314.49</span> <span class="text-xs font-normal text-slate-500">มล.ลบ.ม.</span></p>
+                    </div>
+                    <div class="p-3.5 bg-sky-50/80 rounded-xl border border-sky-100">
+                        <p class="text-xs text-sky-700 mb-1 font-medium">ปริมาตรน้ำปัจจุบัน</p>
+                        <p id="dam-volume" class="text-lg sm:text-xl font-bold text-sky-900">0.00 <span class="text-xs font-normal text-slate-500">มล.ลบ.ม.</span></p>
+                    </div>
+                    <div class="p-3.5 bg-blue-50/80 rounded-xl border border-blue-100">
+                        <p class="text-xs text-blue-700 mb-1 font-medium">คิดเป็นเปอร์เซ็นต์</p>
+                        <p id="dam-percent" class="text-xl sm:text-2xl font-black text-blue-600">0.00%</p>
+                    </div>
+                    <div class="p-3.5 bg-amber-50/80 rounded-xl border border-amber-100">
+                        <p class="text-xs text-amber-700 mb-1 font-medium">น้ำไหลเข้า / ระบายออก</p>
+                        <div class="text-xs space-y-0.5">
+                            <p class="text-slate-700">เข้า: <strong id="dam-inflow" class="text-emerald-600">0.00</strong></p>
+                            <p class="text-slate-700">ออก: <strong id="dam-outflow" class="text-amber-600">0.00</strong></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- การ์ดสถานีฝน ต.หนองไผ่ล้อม -->
+            <div class="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 sm:p-6 flex flex-col justify-between transition hover:shadow-md">
                 <div>
-                    <div class="flex justify-between items-start mb-3">
-                        <div>
-                            <h3 class="font-bold text-slate-800 text-sm sm:text-base">อ่างเก็บน้ำลำตะคอง (ต.คลองไผ่)</h3>
-                            <p class="text-xs text-slate-500">ความจุอ่างกักเก็บปกติ: <strong class="text-slate-700 font-mono" id="dam-capacity">314.49</strong> ล้าน ลบ.ม.</p>
-                        </div>
-                        <span class="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200 font-medium">ThaiWater</span>
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="text-xs font-semibold text-emerald-600 uppercase tracking-wider bg-emerald-50 px-2.5 py-1 rounded-md">ปริมาณฝนสะสม</span>
+                        <span id="rain-status" class="text-xs font-medium text-slate-600">กำลังตรวจสอบ...</span>
                     </div>
+                    <h2 id="rain-station-name" class="text-base font-bold text-slate-800 leading-snug">สถานีวัดน้ำฝน ต.หนองไผ่ล้อม</h2>
+                    <p class="text-xs text-slate-400 mt-0.5">อำเภอเมืองนครราชสีมา</p>
 
-                    <div class="grid grid-cols-2 gap-2.5 my-3">
-                        <div class="p-3 bg-blue-50/80 border border-blue-100 rounded-xl">
-                            <p class="text-[11px] text-blue-800 font-medium">น้ำในอ่างกักเก็บ</p>
-                            <p class="text-lg sm:text-xl font-bold text-blue-900 mt-0.5" id="dam-volume">- <span class="text-xs font-normal">ล้าน ลบ.ม.</span></p>
-                        </div>
-                        <div class="p-3 bg-indigo-50/80 border border-indigo-100 rounded-xl">
-                            <p class="text-[11px] text-indigo-800 font-medium">คิดเป็น % ความจุ</p>
-                            <p class="text-lg sm:text-xl font-bold text-indigo-900 mt-0.5" id="dam-percent">0%</p>
-                        </div>
-                        <div class="p-3 bg-emerald-50/80 border border-emerald-100 rounded-xl">
-                            <p class="text-[11px] text-emerald-800 font-medium">ปริมาตรน้ำไหลลงอ่าง/วัน</p>
-                            <p class="text-base sm:text-lg font-bold text-emerald-700 mt-0.5" id="dam-inflow">- <span class="text-xs font-normal">ล้าน ลบ.ม.</span></p>
-                        </div>
-                        <div class="p-3 bg-amber-50/80 border border-amber-100 rounded-xl">
-                            <p class="text-[11px] text-amber-800 font-medium">ปริมาตรน้ำระบาย/วัน</p>
-                            <p class="text-base sm:text-lg font-bold text-amber-700 mt-0.5" id="dam-outflow">- <span class="text-xs font-normal">ล้าน ลบ.ม.</span></p>
-                        </div>
-                    </div>
-
-                    <div class="p-2.5 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-100">
-                        💡 <strong>หมายเหตุ:</strong> ข้อมูลแสดงอัตราปริมาตรน้ำไหลลงอ่างและระบายสะสมต่อวัน อ้างอิงจากคลังข้อมูลน้ำแห่งชาติ ThaiWater
+                    <div class="mt-4 flex items-baseline gap-2">
+                        <span id="rain-24h" class="text-3xl font-extrabold text-slate-800">0.0 <span class="text-xs font-normal text-slate-500">มม.</span></span>
+                        <span class="text-xs text-slate-500">(สะสม 24 ชม.)</span>
                     </div>
                 </div>
 
-                <div class="mt-3 pt-2 border-t border-slate-100 text-right">
-                    <a id="dam-source-link" href="https://www.thaiwater.net/water/dam/large" target="_blank" class="text-[11px] text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1">
-                        🔗 ที่มา: คลังข้อมูลน้ำแห่งชาติ (ThaiWater.net)
-                    </a>
+                <!-- กราฟปริมาณฝน -->
+                <div class="mt-4 h-28 w-full">
+                    <canvas id="rainChart"></canvas>
                 </div>
-            </section>
+            </div>
 
-            <!-- 3. ข้อมูลติดต่อศูนย์ ปภ. เทศบาลนครนครราชสีมา (ข้อ 6) -->
-            <section class="bg-gradient-to-br from-blue-900 via-blue-950 to-slate-900 text-white p-5 rounded-2xl shadow-sm flex flex-col justify-between">
-                <div>
-                    <div class="flex items-center space-x-2 mb-3">
-                        <span class="text-2xl">🛡️</span>
-                        <div>
-                            <h3 class="font-bold text-base text-blue-100">ศูนย์ป้องกันและบรรเทาสาธารณภัย</h3>
-                            <p class="text-xs text-blue-300">เทศบาลนครนครราชสีมา</p>
-                        </div>
-                    </div>
-                    <p class="text-xs text-blue-200/90 leading-relaxed mb-4">
-                        เฝ้าระวังและเตรียมพร้อมรับมืออุทกภัยตลอด 24 ชั่วโมง หากต้องการความช่วยเหลือหรือแจ้งเหตุระดับน้ำเอ่อล้นเข้าท่วมพื้นที่ สามารถติดต่อได้ทันที
-                    </p>
-                    
-                    <div class="space-y-2.5">
-                        <a href="tel:199" class="flex items-center justify-between bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-xl font-bold transition shadow-sm">
-                            <span class="flex items-center gap-2">🚨 สายด่วนแจ้งเหตุฉุกเฉิน</span>
-                            <span class="text-lg">199</span>
-                        </a>
-                        <a href="tel:044242222" class="flex items-center justify-between bg-white/10 hover:bg-white/20 text-white px-4 py-2.5 rounded-xl text-xs font-semibold border border-white/15 transition">
-                            <span>☎️ ศูนย์วิทยุ ปภ. เทศบาลฯ</span>
-                            <span class="font-mono">0-4424-2222</span>
-                        </a>
-                    </div>
-                </div>
-
-                <div class="mt-4 pt-3 border-t border-blue-800/80 text-[11px] text-blue-300/80 text-center">
-                    พร้อมบริการประชาชนในเขตเทศบาลนครนครราชสีมา
-                </div>
-            </section>
         </div>
 
-        <!-- กราฟเปรียบเทียบระดับน้ำ 4 สถานีหลัก ลุ่มน้ำลำตะคอง (ข้อ 2) -->
-        <section class="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200/80">
-            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+        <!-- Section: กราฟ & ตารางแสดงระดับน้ำลำน้ำลำตะคองเทียบระดับตลิ่ง -->
+        <div class="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 sm:p-6 transition hover:shadow-md space-y-5">
+            <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                 <div>
-                    <h3 class="font-bold text-slate-900 text-base sm:text-lg">ระดับน้ำเทียบระดับตลิ่ง สถานีวัดน้ำลำตะคอง (ม.รทก.)</h3>
-                    <p class="text-xs text-slate-500">เปรียบเทียบระดับน้ำปัจจุบันกับระดับตลิ่ง 4 สถานีหลัก ตั้งแต่ อ.สีคิ้ว ถึง เขตเทศบาลนครนครราชสีมา</p>
+                    <h2 class="text-lg font-bold text-slate-800">ระดับน้ำในลำน้ำลำตะคอง (ม.รทก.)</h2>
+                    <p class="text-xs text-slate-500">เปรียบเทียบระดับน้ำปัจจุบันกับระดับตลิ่งอ้างอิงแต่ละสถานี (M.177, M.192, M.191, M.164)</p>
                 </div>
-                <a href="https://nationalthaiwater.onwr.go.th/waterlevel" target="_blank" class="text-[11px] text-blue-600 hover:underline">ที่มา: คลังข้อมูลน้ำแห่งชาติ (ONWR)</a>
+                <a href="https://nakhonratchasima.thaiwater.net/wl" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-600 hover:text-sky-800 hover:underline">
+                    ดูสถานีทั้งหมดบน ThaiWater 🔗
+                </a>
             </div>
 
-            <div class="h-64 sm:h-80 w-full">
+            <!-- กราฟเส้น Chart.js -->
+            <div class="h-64 sm:h-72 w-full">
                 <canvas id="waterLevelChart"></canvas>
+            </div>
+
+            <!-- ตารางสรุปการเปรียบเทียบระดับตลิ่ง -->
+            <div id="water-level-details" class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                <!-- โค้ด JavaScript จะ Render ตารางแสดงผลระดับน้ำใสตรงนี้ -->
+            </div>
+        </div>
+
+        <!-- Section: การวิเคราะห์สถานะการเฝ้าระวังภัยระดับชุมชนแบบอัตโนมัติ -->
+        <section class="bg-white p-5 sm:p-6 rounded-2xl shadow-xs border border-slate-200/80 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        🚨 สถานะการเฝ้าระวังภัยระดับชุมชน (แนวลุ่มน้ำลำตะคอง)
+                    </h2>
+                    <p class="text-xs text-slate-500 mt-0.5">ประมวลผลความเสี่ยงอัตโนมัติจากปริมาณฝน ระดับน้ำปัจจุบัน และระดับตลิ่งของชุมชน</p>
+                </div>
+                <div class="flex items-center gap-2 text-xs">
+                    <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> ปกติ</span>
+                    <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> เฝ้าระวัง</span>
+                    <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-orange-500"></span> เตือนภัย</span>
+                    <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-600"></span> วิกฤต</span>
+                </div>
+            </div>
+
+            <!-- Container การ์ดการแจ้งเตือนรายชุมชน -->
+            <div id="alert-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- JavaScript จะสร้างความเสี่ยงของแต่ละชุมชนมาวางตรงนี้โดยอัตโนมัติ -->
             </div>
         </section>
 
     </main>
 
-    <footer class="bg-slate-200/60 text-center py-4 text-xs text-slate-600 border-t border-slate-200 mt-auto">
-        © งานศูนย์ป้องกันและบรรเทาสาธารณภัย เทศบาลนครนครราชสีมา | พัฒนาเพื่อการแจ้งเตือนภัยอุทกภัย
+    <!-- Footer Section -->
+    <footer class="bg-slate-900 text-slate-400 border-t border-slate-800 mt-10 py-6">
+        <div class="max-w-7xl mx-auto px-4 text-center text-xs space-y-2">
+            <p>ระบบติดตามสถานการณ์น้ำและเตือนภัยลุ่มน้ำลำตะคอง © Korat City Water Monitor</p>
+            <p class="text-slate-500">เชื่อมโยงฐานข้อมูลสถิติสดจาก คลังข้อมูลน้ำแห่งชาติ (ThaiWater API) & กรมชลประทาน</p>
+        </div>
     </footer>
 
-    <script src="js/logic.js"></script>
+    <!-- JavaScript หลักของระบบ -->
     <script src="js/main.js"></script>
 </body>
 </html>
