@@ -1,16 +1,16 @@
 document.addEventListener('DOMContentLoaded', () => {
     fetchData();
-    setInterval(fetchData, 60000); // เรียกอัปเดตทุก 1 นาที
+    setInterval(fetchData, 60000); // อัปเดตข้อมูลอัตโนมัติทุก 1 นาที
 });
 
 async function fetchData() {
     try {
-        // บังคับแก้ Browser Cache ด้วยการต่อ Timestamp เพื่อให้ดึงข้อมูลใหม่ทันที
+        // ต่อ Cache Buster timestamp เพื่อป้องกันการดึงค่าค้างในเบราว์เซอร์
         const cacheBuster = new Date().getTime();
         const response = await fetch(`data/latest_data.json?v=${cacheBuster}`);
         
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(`HTTP Error: ${response.status}`);
         }
         
         const data = await response.json();
@@ -23,27 +23,17 @@ async function fetchData() {
 function renderDashboard(data) {
     if (!data) return;
 
-    // 1. อัปเดตข้อมูลเขื่อนลำตะคอง + คิดเปอร์เซ็นต์อัตโนมัติอย่างถูกต้อง
-    if (data.dam) {
-        updateDamSection(data.dam);
-    }
-
-    // 2. อัปเดตข้อมูลปริมาณฝน
-    if (data.rainfall) {
-        updateRainSection(data.rainfall);
-    }
-
-    // 3. อัปเดตกราฟระดับน้ำ
+    if (data.dam) updateDamSection(data.dam);
+    if (data.rainfall) updateRainSection(data.rainfall);
     if (data.waterLevels) {
         updateWaterLevelChart(data.waterLevels);
+        renderWaterLevelList(data.waterLevels); // แสดงตารางเปรียบเทียบระดับตลิ่ง
     }
-
-    // 4. อัปเดตการแจ้งเตือนชุมชน (ตรวจสอบว่ามีฟังก์ชันรองรับเพื่อป้องกัน Script ค้าง)
+    
     if (data.waterLevels && data.rainfall && typeof COMMUNITIES !== 'undefined' && typeof evaluateCommunityRisk === 'function') {
         updateCommunityAlerts(data.waterLevels, data.rainfall.rain24h);
     }
 
-    // 5. แสดงเวลาอัปเดตข้อมูลบน UI
     const updateElem = document.getElementById('last-update');
     if (updateElem) {
         const updateDate = data.updatedAt ? new Date(data.updatedAt) : new Date();
@@ -51,11 +41,12 @@ function renderDashboard(data) {
     }
 }
 
+// 1. คำนวณ % เขื่อนลำตะคอง
 function updateDamSection(damData) {
     const capacity = damData.capacity || 314.49;
     const volume = damData.volume || 0;
     
-    // สูตรคำนวณเปอร์เซ็นต์น้ำในอ่างอย่างแม่นยำ: (ปริมาตรน้ำ / ความจุอ่าง) * 100
+    // (ปริมาตรน้ำในอ่าง / ความจุอ่าง) * 100
     const calculatedPercent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
 
     const capElem = document.getElementById('dam-capacity');
@@ -72,14 +63,15 @@ function updateDamSection(damData) {
     
     const outflowElem = document.getElementById('dam-outflow');
     if (outflowElem) outflowElem.innerHTML = `${Number(damData.outflow || 0).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
-
-    const sourceLink = document.getElementById('dam-source-link');
-    if (sourceLink && damData.sourceUrl) {
-        sourceLink.href = damData.sourceUrl;
-    }
 }
 
+// 2. สถานีวัดน้ำฝน ต.หนองไผ่ล้อม
 function updateRainSection(rainData) {
+    const stationNameElem = document.getElementById('rain-station-name');
+    if (stationNameElem && rainData.stationName) {
+        stationNameElem.innerText = rainData.stationName;
+    }
+
     const rainElem = document.getElementById('rain-24h');
     if (rainElem) rainElem.innerHTML = `${Number(rainData.rain24h || 0).toFixed(1)} <span class="text-xs font-normal">มม.</span>`;
     
@@ -121,6 +113,33 @@ function updateRainSection(rainData) {
     }
 }
 
+// 3. คำนวณระดับน้ำเทียบระดับตลิ่ง (ม.รทก.)
+function renderWaterLevelList(stations) {
+    const container = document.getElementById('water-level-details');
+    if (!container) return;
+
+    let html = '';
+    Object.keys(stations).forEach(key => {
+        const st = stations[key];
+        const diff = (st.bank - st.level).toFixed(2);
+        const isOverflow = st.level >= st.bank;
+        const statusBadge = isOverflow 
+            ? `<span class="bg-red-100 text-red-800 text-xs font-bold px-2 py-0.5 rounded">ล้นตลิ่ง ${Math.abs(diff)} ม.</span>`
+            : `<span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-0.5 rounded">ต่ำกว่าตลิ่ง ${diff} ม.</span>`;
+
+        html += `
+            <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                <div>
+                    <div class="font-bold text-sm text-slate-800">${st.code || key} - ${st.name}</div>
+                    <div class="text-xs text-slate-500">ระดับน้ำ: <strong>${st.level.toFixed(2)}</strong> ม.รทก. | ระดับตลิ่ง: <strong>${st.bank.toFixed(2)}</strong> ม.รทก.</div>
+                </div>
+                <div>${statusBadge}</div>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
 function updateWaterLevelChart(stations) {
     const canvas = document.getElementById('waterLevelChart');
     if (!canvas || typeof Chart === 'undefined') return;
@@ -131,10 +150,10 @@ function updateWaterLevelChart(stations) {
         type: 'line',
         data: {
             labels: [
-                'M.177 ลาดบัวขาว (อ.สีคิ้ว)', 
-                'M.192 โนนค่า (อ.สูงเนิน)', 
-                'M.191 โคกกรวด (อ.เมือง)', 
-                'M.164 VIP (ต.ในเมือง)'
+                'M.177 (ลาดบัวขาว)', 
+                'M.192 (โนนค่า)', 
+                'M.191 (โคกกรวด)', 
+                'M.164 (สะพาน VIP)'
             ],
             datasets: [
                 {
@@ -180,31 +199,5 @@ function updateWaterLevelChart(stations) {
                 x: { grid: { display: false } }
             }
         }
-    });
-}
-
-function updateCommunityAlerts(stations, rain24h) {
-    const alertGrid = document.getElementById('alert-grid');
-    if (!alertGrid) return;
-    alertGrid.innerHTML = '';
-
-    COMMUNITIES.forEach(c => {
-        const currentWater = stations[c.stationRef] ? stations[c.stationRef].level : 0;
-        const evalResult = evaluateCommunityRisk(c, currentWater, rain24h || 0);
-
-        const card = document.createElement('div');
-        card.className = `p-3.5 rounded-xl border ${evalResult.colorClass} flex justify-between items-center shadow-xs transition hover:shadow-md`;
-        card.innerHTML = `
-            <div class="space-y-1">
-                <h4 class="font-bold text-xs sm:text-sm leading-tight">${c.name}</h4>
-                <p class="text-[11px] opacity-75">ระดับตลิ่งอ้างอิง: <strong>${c.bankElevation}</strong> ม.รทก.</p>
-                <div class="pt-0.5">
-                    <span class="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-white/70 shadow-2xs">
-                        ${evalResult.icon} ${evalResult.label}
-                    </span>
-                </div>
-            </div>
-        `;
-        alertGrid.appendChild(card);
     });
 }
