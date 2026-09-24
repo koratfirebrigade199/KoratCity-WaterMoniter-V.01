@@ -1,11 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
     fetchData();
-    setInterval(fetchData, 3600000); // อัปเดตอัตโนมัติทุก 1 ชั่วโมง
+    setInterval(fetchData, 3600000); // อัปเดตข้อมูลอัตโนมัติทุก 1 ชั่วโมง (3,600,000 ms)
 });
 
 async function fetchData() {
     try {
-        // ใช้ Relative Path ที่รองรับ GitHub Pages Sub-folder
+        // ดึงข้อมูลล่าสุดจาก latest_data.json พร้อมป้องกัน Cache ด้วย Timestamp
         const response = await fetch('data/latest_data.json?t=' + new Date().getTime());
         
         if (!response.ok) {
@@ -15,14 +15,21 @@ async function fetchData() {
         const data = await response.json();
         renderDashboard(data);
     } catch (e) {
-        console.warn("ไม่สามารถดึงไฟล์ data/latest_data.json ได้ กำลังใช้ข้อมูลสำรองสำหรับแสดงผล:", e);
-        // ข้อมูล Mockup สำหรับแสดงผลทันทีไม่ให้หน้าเว็บขาว
+        console.warn("ไม่สามารถดึงไฟล์ data/latest_data.json ได้ กำลังใช้ข้อมูลสำรองในการแสดงผล:", e);
+        // ข้อมูลสำรอง กรณี GitHub Pages ยังหาไฟล์ JSON ไม่เจอ
         const fallbackData = {
             rainfall: {
                 rain24h: 35.0,
                 hourly: Array.from({length: 24}, (_, i) => ({ time: `${i}:00`, val: Math.floor(Math.random() * 5) }))
             },
-            dam: { volume: 248.65, percent: 79.06, inflow: 12.45, outflow: 4.50 },
+            dam: { 
+                name: "โครงการส่งน้ำและบำรุงรักษาลำตะคอง ต.คลองไผ่",
+                capacity: 314.49,
+                volume: 248.65, 
+                percent: 79.06, 
+                inflow: 12.45, 
+                outflow: 4.50 
+            },
             waterLevels: {
                 M177: { level: 241.20, bank: 243.30 },
                 M192: { level: 202.10, bank: 203.90 },
@@ -39,20 +46,24 @@ function renderDashboard(data) {
     updateDamSection(data.dam);
     updateWaterLevelChart(data.waterLevels);
     updateCommunityAlerts(data.waterLevels, data.rainfall.rain24h);
-    document.getElementById('last-update').innerText = `อัปเดตล่าสุด: ${new Date().toLocaleTimeString('th-TH')} น.`;
+    
+    const updateElem = document.getElementById('last-update');
+    if (updateElem) {
+        updateElem.innerText = `อัปเดตล่าสุด: ${new Date().toLocaleTimeString('th-TH')} น.`;
+    }
 }
 
 function updateRainSection(rainData) {
-    const el = document.getElementById('rain-24h');
-    if (el) el.innerHTML = `${rainData.rain24h.toFixed(1)} <span class="text-sm font-normal">มม.</span>`;
+    const rainElem = document.getElementById('rain-24h');
+    if (rainElem) rainElem.innerHTML = `${rainData.rain24h.toFixed(1)} <span class="text-sm font-normal">มม.</span>`;
     
     let statusText = "ไม่มีฝนตก";
     if (rainData.rain24h > 90) statusText = "ฝนตกหนักมาก";
     else if (rainData.rain24h > 35) statusText = "ฝนตกปานกลางถึงหนัก";
     else if (rainData.rain24h > 10) statusText = "ฝนตกเล็กน้อย";
     
-    const statusEl = document.getElementById('rain-status');
-    if (statusEl) statusEl.innerText = statusText;
+    const statusElem = document.getElementById('rain-status');
+    if (statusElem) statusElem.innerText = statusText;
 
     const canvas = document.getElementById('rainChart');
     if (canvas) {
@@ -73,11 +84,26 @@ function updateRainSection(rainData) {
     }
 }
 
+// ฟังก์ชันปรับแก้สำหรับแสดงข้อมูลอ่างเก็บน้ำลำตะคอง จากโครงการส่งน้ำและบำรุงรักษาลำตะคอง (RID)
 function updateDamSection(damData) {
-    if (document.getElementById('dam-volume')) document.getElementById('dam-volume').innerHTML = `${damData.volume} <span class="text-xs font-normal">ล้าน ลบ.ม.</span>`;
-    if (document.getElementById('dam-percent')) document.getElementById('dam-percent').innerText = `${damData.percent}%`;
-    if (document.getElementById('dam-inflow')) document.getElementById('dam-inflow').innerHTML = `${damData.inflow} <span class="text-xs font-normal">ลบ.ม./วิ</span>`;
-    if (document.getElementById('dam-outflow')) document.getElementById('dam-outflow').innerHTML = `${damData.outflow} <span class="text-xs font-normal">ลบ.ม./วิ</span>`;
+    const volElem = document.getElementById('dam-volume');
+    if (volElem) volElem.innerHTML = `${damData.volume} <span class="text-xs font-normal">ล้าน ลบ.ม.</span>`;
+    
+    const pctElem = document.getElementById('dam-percent');
+    if (pctElem) pctElem.innerText = `${damData.percent}%`;
+    
+    const inflowElem = document.getElementById('dam-inflow');
+    if (inflowElem) inflowElem.innerHTML = `${damData.inflow} <span class="text-xs font-normal">ลบ.ม./วิ</span>`;
+    
+    const outflowElem = document.getElementById('dam-outflow');
+    if (outflowElem) outflowElem.innerHTML = `${damData.outflow} <span class="text-xs font-normal">ลบ.ม./วิ</span>`;
+
+    // อัปเดตลิงก์ที่มาเป็นโครงการส่งน้ำและบำรุงรักษาลำตะคอง (http://lamtakhong-omp.rid.go.th/Lamtakhong/index.php)
+    const sourceLink = document.getElementById('dam-source-link');
+    if (sourceLink) {
+        sourceLink.href = "http://lamtakhong-omp.rid.go.th/Lamtakhong/index.php";
+        sourceLink.innerText = "ที่มา: โครงการส่งน้ำและบำรุงรักษาลำตะคอง (กรมชลประทาน)";
+    }
 }
 
 function updateWaterLevelChart(stations) {
