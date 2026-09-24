@@ -1,203 +1,194 @@
 document.addEventListener('DOMContentLoaded', () => {
-    fetchData();
-    setInterval(fetchData, 60000); // อัปเดตข้อมูลอัตโนมัติทุก 1 นาที
+    loadLiveThaiWaterData();
+    setInterval(loadLiveThaiWaterData, 300000); // โหลดใหม่ทุก 5 นาที
 });
 
-async function fetchData() {
-    try {
-        // ต่อ Cache Buster timestamp เพื่อป้องกันการดึงค่าค้างในเบราว์เซอร์
-        const cacheBuster = new Date().getTime();
-        const response = await fetch(`data/latest_data.json?v=${cacheBuster}`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP Error: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        renderDashboard(data);
-    } catch (error) {
-        console.error("เกิดข้อผิดพลาดในการดึงข้อมูล:", error);
-    }
-}
+async function loadLiveThaiWaterData() {
+    updateStatusText("กำลังดึงข้อมูลสดจาก ThaiWater Korat...");
 
-function renderDashboard(data) {
-    if (!data) return;
-
-    if (data.dam) updateDamSection(data.dam);
-    if (data.rainfall) updateRainSection(data.rainfall);
-    if (data.waterLevels) {
-        updateWaterLevelChart(data.waterLevels);
-        renderWaterLevelList(data.waterLevels); // แสดงตารางเปรียบเทียบระดับตลิ่ง
-    }
+    // 1. ดึงข้อมูลเขื่อนลำตะคอง
+    const damData = await fetchDamData();
     
-    if (data.waterLevels && data.rainfall && typeof COMMUNITIES !== 'undefined' && typeof evaluateCommunityRisk === 'function') {
-        updateCommunityAlerts(data.waterLevels, data.rainfall.rain24h);
-    }
+    // 2. ดึงข้อมูลฝน ต.หนองไผ่ล้อม
+    const rainData = await fetchRainData();
+    
+    // 3. ดึงข้อมูลระดับน้ำลำน้ำลำตะคอง (M.177, M.192, M.191, M.164)
+    const wlData = await fetchWaterLevelData();
 
+    // Render ข้อมูลขึ้น UI
+    if (damData) updateDamUI(damData);
+    if (rainData) updateRainUI(rainData);
+    if (wlData) updateWaterLevelUI(wlData);
+
+    // แสดงเวลาอัปเดตล่าสุด
     const updateElem = document.getElementById('last-update');
     if (updateElem) {
-        const updateDate = data.updatedAt ? new Date(data.updatedAt) : new Date();
-        updateElem.innerText = `อัปเดตล่าสุด: ${updateDate.toLocaleDateString('th-TH')} ${updateDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`;
+        const now = new Date();
+        updateElem.innerText = `อัปเดตข้อมูลสด: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`;
     }
 }
 
-// 1. คำนวณ % เขื่อนลำตะคอง
-function updateDamSection(damData) {
-    const capacity = damData.capacity || 314.49;
-    const volume = damData.volume || 0;
-    
-    // (ปริมาตรน้ำในอ่าง / ความจุอ่าง) * 100
-    const calculatedPercent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
+// ----------------------------------------------------
+// 1. ดึงข้อมูลเขื่อนลำตะคอง (nakhonratchasima.thaiwater.net/dam)
+// ----------------------------------------------------
+async function fetchDamData() {
+    const targetUrl = 'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/dam_storage';
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&_=${new Date().getTime()}`;
 
-    const capElem = document.getElementById('dam-capacity');
-    if (capElem) capElem.innerText = capacity.toFixed(2);
+    try {
+        const res = await fetch(proxyUrl);
+        if (!res.ok) throw new Error("Proxy error");
+        const json = await res.json();
+        const data = JSON.parse(json.contents);
+        
+        const dams = data.dam_storage || [];
+        const lamTakhong = dams.find(d => {
+            const name = d.dam?.dam_name?.th || '';
+            return name.includes('ลำตะคอง');
+        });
 
-    const volElem = document.getElementById('dam-volume');
-    if (volElem) volElem.innerHTML = `${volume.toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม.</span>`;
-    
-    const pctElem = document.getElementById('dam-percent');
-    if (pctElem) pctElem.innerText = `${calculatedPercent}%`;
-    
-    const inflowElem = document.getElementById('dam-inflow');
-    if (inflowElem) inflowElem.innerHTML = `${Number(damData.inflow || 0).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
-    
-    const outflowElem = document.getElementById('dam-outflow');
-    if (outflowElem) outflowElem.innerHTML = `${Number(damData.outflow || 0).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
+        if (lamTakhong) {
+            return {
+                capacity: parseFloat(lamTakhong.dam_capacity) || 314.49,
+                volume: parseFloat(lamTakhong.dam_storage) || 0,
+                inflow: parseFloat(lamTakhong.dam_inflow) || 0,
+                outflow: parseFloat(lamTakhong.dam_uses) || 0
+            };
+        }
+    } catch (e) {
+        console.warn("ไม่สามารถดึงข้อมูลเขื่อนสดได้ ใช้ข้อมูลสำรอง:", e);
+    }
+    return null;
 }
 
-// 2. สถานีวัดน้ำฝน ต.หนองไผ่ล้อม
-function updateRainSection(rainData) {
-    const stationNameElem = document.getElementById('rain-station-name');
-    if (stationNameElem && rainData.stationName) {
-        stationNameElem.innerText = rainData.stationName;
-    }
+// ----------------------------------------------------
+// 2. ดึงข้อมูลฝน หนองไผ่ล้อม (nakhonratchasima.thaiwater.net/rainfall)
+// ----------------------------------------------------
+async function fetchRainData() {
+    const targetUrl = 'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/rain_24h';
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&_=${new Date().getTime()}`;
 
-    const rainElem = document.getElementById('rain-24h');
-    if (rainElem) rainElem.innerHTML = `${Number(rainData.rain24h || 0).toFixed(1)} <span class="text-xs font-normal">มม.</span>`;
+    try {
+        const res = await fetch(proxyUrl);
+        if (!res.ok) throw new Error("Proxy error");
+        const json = await res.json();
+        const data = JSON.parse(json.contents);
+        
+        const stations = data.data || [];
+        // ค้นหาสถานีฝน ต.หนองไผ่ล้อม อ.เมืองนครราชสีมา
+        const targetStation = stations.find(s => {
+            const name = s.station?.tele_station_name?.th || '';
+            const subdistrict = s.geocode?.subdistrict_name?.th || '';
+            return name.includes('หนองไผ่ล้อม') || subdistrict.includes('หนองไผ่ล้อม');
+        });
+
+        if (targetStation) {
+            return {
+                stationName: targetStation.station?.tele_station_name?.th || "ต.หนองไผ่ล้อม",
+                rain24h: parseFloat(targetStation.rain_24h) || 0
+            };
+        }
+    } catch (e) {
+        console.warn("ไม่สามารถดึงข้อมูลฝนสดได้:", e);
+    }
+    return null;
+}
+
+// ----------------------------------------------------
+// 3. ดึงข้อมูลระดับน้ำลำน้ำ (nakhonratchasima.thaiwater.net/wl)
+// ----------------------------------------------------
+async function fetchWaterLevelData() {
+    const targetUrl = 'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load';
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&_=${new Date().getTime()}`;
+
+    try {
+        const res = await fetch(proxyUrl);
+        if (!res.ok) throw new Error("Proxy error");
+        const json = await res.json();
+        const data = JSON.parse(json.contents);
+        
+        const stations = data.waterlevel_data || [];
+        
+        const mapStation = (code, defaultBank) => {
+            const st = stations.find(s => (s.station?.tele_station_old_code || '').includes(code));
+            if (st) {
+                return {
+                    code: code,
+                    name: st.station?.tele_station_name?.th || code,
+                    level: parseFloat(st.waterlevel_m) || 0,
+                    bank: parseFloat(st.bank_height) || defaultBank
+                };
+            }
+            return null;
+        };
+
+        return {
+            M177: mapStation('M.177', 243.30),
+            M192: mapStation('M.192', 203.90),
+            M191: mapStation('M.191', 195.30),
+            M164: mapStation('M.164', 177.60)
+        };
+    } catch (e) {
+        console.warn("ไม่สามารถดึงข้อมูลระดับน้ำสดได้:", e);
+    }
+    return null;
+}
+
+// ----------------------------------------------------
+// UI Render Functions
+// ----------------------------------------------------
+function updateDamUI(dam) {
+    const capacity = dam.capacity || 314.49;
+    const volume = dam.volume || 0;
+    const percent = ((volume / capacity) * 100).toFixed(2);
+
+    if (document.getElementById('dam-capacity')) document.getElementById('dam-capacity').innerText = capacity.toFixed(2);
+    if (document.getElementById('dam-volume')) document.getElementById('dam-volume').innerHTML = `${volume.toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม.</span>`;
+    if (document.getElementById('dam-percent')) document.getElementById('dam-percent').innerText = `${percent}%`;
+    if (document.getElementById('dam-inflow')) document.getElementById('dam-inflow').innerHTML = `${dam.inflow.toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
+    if (document.getElementById('dam-outflow')) document.getElementById('dam-outflow').innerHTML = `${dam.outflow.toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
+}
+
+function updateRainUI(rain) {
+    if (document.getElementById('rain-station-name')) document.getElementById('rain-station-name').innerText = rain.stationName;
+    if (document.getElementById('rain-24h')) document.getElementById('rain-24h').innerHTML = `${rain.rain24h.toFixed(1)} <span class="text-xs font-normal">มม.</span>`;
     
     let statusText = "ไม่มีฝนตก";
-    if (rainData.rain24h > 90) statusText = "🌧️ ฝนตกหนักมาก";
-    else if (rainData.rain24h > 35) statusText = "🌦️ ฝนตกปานกลาง";
-    else if (rainData.rain24h > 0.1) statusText = "🌤️ ฝนตกเล็กน้อย";
-    
-    const statusElem = document.getElementById('rain-status');
-    if (statusElem) statusElem.innerText = statusText;
-
-    if (rainData.hourly && rainData.hourly.length > 0 && typeof Chart !== 'undefined') {
-        const canvas = document.getElementById('rainChart');
-        if (canvas) {
-            const ctx = canvas.getContext('2d');
-            if (window.rainChartObj) window.rainChartObj.destroy();
-            window.rainChartObj = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: rainData.hourly.map(h => h.time),
-                    datasets: [{
-                        label: 'ปริมาณฝน (มม.)',
-                        data: rainData.hourly.map(h => h.val),
-                        backgroundColor: '#3b82f6',
-                        borderRadius: 4
-                    }]
-                },
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
-                        x: { grid: { display: false } }
-                    }
-                }
-            });
-        }
-    }
+    if (rain.rain24h > 90) statusText = "🌧️ ฝนตกหนักมาก";
+    else if (rain.rain24h > 35) statusText = "🌦️ ฝนตกปานกลาง";
+    else if (rain.rain24h > 0.1) statusText = "🌤️ ฝนตกเล็กน้อย";
+    if (document.getElementById('rain-status')) document.getElementById('rain-status').innerText = statusText;
 }
 
-// 3. คำนวณระดับน้ำเทียบระดับตลิ่ง (ม.รทก.)
-function renderWaterLevelList(stations) {
+function updateWaterLevelUI(stations) {
     const container = document.getElementById('water-level-details');
     if (!container) return;
 
     let html = '';
-    Object.keys(stations).forEach(key => {
-        const st = stations[key];
+    Object.keys(stations).forEach(k => {
+        const st = stations[k];
+        if (!st) return;
+
         const diff = (st.bank - st.level).toFixed(2);
         const isOverflow = st.level >= st.bank;
-        const statusBadge = isOverflow 
+        const badge = isOverflow 
             ? `<span class="bg-red-100 text-red-800 text-xs font-bold px-2 py-0.5 rounded">ล้นตลิ่ง ${Math.abs(diff)} ม.</span>`
             : `<span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-0.5 rounded">ต่ำกว่าตลิ่ง ${diff} ม.</span>`;
 
         html += `
             <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                 <div>
-                    <div class="font-bold text-sm text-slate-800">${st.code || key} - ${st.name}</div>
+                    <div class="font-bold text-sm text-slate-800">${st.code} - ${st.name}</div>
                     <div class="text-xs text-slate-500">ระดับน้ำ: <strong>${st.level.toFixed(2)}</strong> ม.รทก. | ระดับตลิ่ง: <strong>${st.bank.toFixed(2)}</strong> ม.รทก.</div>
                 </div>
-                <div>${statusBadge}</div>
+                <div>${badge}</div>
             </div>
         `;
     });
     container.innerHTML = html;
 }
 
-function updateWaterLevelChart(stations) {
-    const canvas = document.getElementById('waterLevelChart');
-    if (!canvas || typeof Chart === 'undefined') return;
-    
-    const ctx = canvas.getContext('2d');
-    if (window.waterChartObj) window.waterChartObj.destroy();
-    window.waterChartObj = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: [
-                'M.177 (ลาดบัวขาว)', 
-                'M.192 (โนนค่า)', 
-                'M.191 (โคกกรวด)', 
-                'M.164 (สะพาน VIP)'
-            ],
-            datasets: [
-                {
-                    label: 'ระดับน้ำปัจจุบัน (ม.รทก.)',
-                    data: [
-                        stations.M177 ? stations.M177.level : 0, 
-                        stations.M192 ? stations.M192.level : 0, 
-                        stations.M191 ? stations.M191.level : 0, 
-                        stations.M164 ? stations.M164.level : 0
-                    ],
-                    borderColor: '#0284c7',
-                    backgroundColor: 'rgba(2, 132, 199, 0.15)',
-                    borderWidth: 2.5,
-                    fill: true,
-                    tension: 0.3,
-                    pointRadius: 4,
-                    pointBackgroundColor: '#0284c7'
-                },
-                {
-                    label: 'ระดับตลิ่ง (ม.รทก.)',
-                    data: [
-                        stations.M177 ? stations.M177.bank : 243.30, 
-                        stations.M192 ? stations.M192.bank : 203.90, 
-                        stations.M191 ? stations.M191.bank : 195.30, 
-                        stations.M164 ? stations.M164.bank : 177.60
-                    ],
-                    borderColor: '#dc2626',
-                    borderDash: [6, 4],
-                    borderWidth: 2,
-                    fill: false,
-                    pointStyle: 'rectRot',
-                    pointRadius: 5,
-                    pointBackgroundColor: '#dc2626'
-                }
-            ]
-        },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'top' } },
-            scales: {
-                y: { grid: { color: '#f1f5f9' }, title: { display: true, text: 'ระดับน้ำ (ม.รทก.)', font: { size: 11 } } },
-                x: { grid: { display: false } }
-            }
-        }
-    });
+function updateStatusText(text) {
+    const updateElem = document.getElementById('last-update');
+    if (updateElem) updateElem.innerText = text;
 }
