@@ -1,10 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
     fetchData();
-    setInterval(fetchData, 3600000); // อัปเดตข้อมูลอัตโนมัติทุก 1 ชั่วโมง
+    setInterval(fetchData, 600000); // เรียกเช็คข้อมูลใหม่ทุก 10 นาที
 });
 
 async function fetchData() {
     try {
+        // ใส่ timestamp เพื่อป้องกันการจำค่า Cache ของเบราว์เซอร์
         const response = await fetch('data/latest_data.json?t=' + new Date().getTime());
         
         if (!response.ok) {
@@ -14,94 +15,32 @@ async function fetchData() {
         const data = await response.json();
         renderDashboard(data);
     } catch (e) {
-        console.warn("ดึงข้อมูลจากไฟล์ latest_data.json ไม่สำเร็จ ใช้ชุดข้อมูลสำรองสำหรับแสดงผล:", e);
-        const fallbackData = {
-            rainfall: {
-                rain24h: 32.5,
-                hourly: [
-                    { time: "00:00", val: 0.0 }, { time: "02:00", val: 0.0 }, { time: "04:00", val: 1.5 },
-                    { time: "06:00", val: 4.2 }, { time: "08:00", val: 12.0 }, { time: "10:00", val: 8.5 },
-                    { time: "12:00", val: 3.1 }, { time: "14:00", val: 2.0 }, { time: "16:00", val: 1.2 }
-                ]
-            },
-            dam: { 
-                name: "อ่างเก็บน้ำลำตะคอง ต.คลองไผ่ อ.สีคิ้ว",
-                sourceUrl: "https://www.thaiwater.net/water/dam/large",
-                capacity: 314.49,
-                volume: 248.65,
-                inflow: 1.08, 
-                outflow: 0.39 
-            },
-            waterLevels: {
-                M177: { level: 241.20, bank: 243.30 },
-                M192: { level: 202.10, bank: 203.90 },
-                M191: { level: 193.80, bank: 195.30 },
-                M164: { level: 175.40, bank: 177.60 }
-            }
-        };
-        renderDashboard(fallbackData);
+        console.error("ไม่สามารถดึงข้อมูลล่าสุดได้:", e);
     }
 }
 
 function renderDashboard(data) {
     updateRainSection(data.rainfall);
     updateDamSection(data.dam);
-    updateWaterLevelChart(data.waterLevels);
-    updateCommunityAlerts(data.waterLevels, data.rainfall.rain24h);
+    if (data.waterLevels) updateWaterLevelChart(data.waterLevels);
+    if (data.waterLevels && data.rainfall) updateCommunityAlerts(data.waterLevels, data.rainfall.rain24h);
     
+    // แสดงเวลาอัปเดตจริงของข้อมูล
     const updateElem = document.getElementById('last-update');
     if (updateElem) {
-        updateElem.innerText = `อัปเดตล่าสุด: ${new Date().toLocaleTimeString('th-TH')} น.`;
+        const updateDate = data.updatedAt ? new Date(data.updatedAt) : new Date();
+        updateElem.innerText = `ข้อมูลอัปเดตเมื่อ: ${updateDate.toLocaleDateString('th-TH')} ${updateDate.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'})} น.`;
     }
 }
 
-function updateRainSection(rainData) {
-    const rainElem = document.getElementById('rain-24h');
-    if (rainElem) rainElem.innerHTML = `${rainData.rain24h.toFixed(1)} <span class="text-xs font-normal">มม.</span>`;
-    
-    let statusText = "ไม่มีฝนตก";
-    if (rainData.rain24h > 90) statusText = "🌧️ ฝนตกหนักมาก";
-    else if (rainData.rain24h > 35) statusText = "🌦️ ฝนตกปานกลาง";
-    else if (rainData.rain24h > 0.1) statusText = "🌤️ ฝนตกเล็กน้อย";
-    
-    const statusElem = document.getElementById('rain-status');
-    if (statusElem) statusElem.innerText = statusText;
-
-    const canvas = document.getElementById('rainChart');
-    if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (window.rainChartObj) window.rainChartObj.destroy();
-        window.rainChartObj = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: rainData.hourly.map(h => h.time),
-                datasets: [{
-                    label: 'ปริมาณฝน (มม.)',
-                    data: rainData.hourly.map(h => h.val),
-                    backgroundColor: '#3b82f6',
-                    borderRadius: 4
-                }]
-            },
-            options: { 
-                responsive: true, 
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
-                    x: { grid: { display: false } }
-                }
-            }
-        });
-    }
-}
-
-// อัปเดตและคำนวณ % น้ำในอ่างเก็บน้ำลำตะคองอัตโนมัติ
 function updateDamSection(damData) {
+    if (!damData) return;
+
     const capacity = damData.capacity || 314.49;
     const volume = damData.volume || 0;
     
-    // คำนวณเปอร์เซ็นต์อัตโนมัติ: (น้ำในอ่าง / ความจุอ่าง) * 100
-    const calculatedPercent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
+    // คำนวณ % น้ำในอ่างจริงตามสูตร: (น้ำในอ่าง / ความจุอ่าง) * 100
+    const percent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
 
     const capElem = document.getElementById('dam-capacity');
     if (capElem) capElem.innerText = capacity.toFixed(2);
@@ -110,7 +49,7 @@ function updateDamSection(damData) {
     if (volElem) volElem.innerHTML = `${volume.toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม.</span>`;
     
     const pctElem = document.getElementById('dam-percent');
-    if (pctElem) pctElem.innerText = `${calculatedPercent}%`;
+    if (pctElem) pctElem.innerText = `${percent}%`;
     
     const inflowElem = document.getElementById('dam-inflow');
     if (inflowElem) inflowElem.innerHTML = `${Number(damData.inflow).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
@@ -124,81 +63,119 @@ function updateDamSection(damData) {
     }
 }
 
+function updateRainSection(rainData) {
+    if (!rainData) return;
+    const rainElem = document.getElementById('rain-24h');
+    if (rainElem) rainElem.innerHTML = `${(rainData.rain24h || 0).toFixed(1)} <span class="text-xs font-normal">มม.</span>`;
+    
+    let statusText = "ไม่มีฝนตก";
+    if (rainData.rain24h > 90) statusText = "🌧️ ฝนตกหนักมาก";
+    else if (rainData.rain24h > 35) statusText = "🌦️ ฝนตกปานกลาง";
+    else if (rainData.rain24h > 0.1) statusText = "🌤️ ฝนตกเล็กน้อย";
+    
+    const statusElem = document.getElementById('rain-status');
+    if (statusElem) statusElem.innerText = statusText;
+
+    if (rainData.hourly && rainData.hourly.length > 0) {
+        const canvas = document.getElementById('rainChart');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (window.rainChartObj) window.rainChartObj.destroy();
+            window.rainChartObj = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: rainData.hourly.map(h => h.time),
+                    datasets: [{
+                        label: 'ปริมาณฝน (มม.)',
+                        data: rainData.hourly.map(h => h.val),
+                        backgroundColor: '#3b82f6',
+                        borderRadius: 4
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+    }
+}
+
 function updateWaterLevelChart(stations) {
     const canvas = document.getElementById('waterLevelChart');
-    if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (window.waterChartObj) window.waterChartObj.destroy();
-        window.waterChartObj = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [
-                    'M.177 ลาดบัวขาว (อ.สีคิ้ว)', 
-                    'M.192 โนนค่า (อ.สูงเนิน)', 
-                    'M.191 โคกกรวด (อ.เมือง)', 
-                    'M.164 VIP (ต.ในเมือง)'
-                ],
-                datasets: [
-                    {
-                        label: 'ระดับน้ำปัจจุบัน (ม.รทก.)',
-                        data: [
-                            stations.M177 ? stations.M177.level : 0, 
-                            stations.M192 ? stations.M192.level : 0, 
-                            stations.M191 ? stations.M191.level : 0, 
-                            stations.M164 ? stations.M164.level : 0
-                        ],
-                        borderColor: '#0284c7',
-                        backgroundColor: 'rgba(2, 132, 199, 0.15)',
-                        borderWidth: 2.5,
-                        fill: true,
-                        tension: 0.3,
-                        pointRadius: 4,
-                        pointBackgroundColor: '#0284c7'
-                    },
-                    {
-                        label: 'ระดับตลิ่ง (ม.รทก.)',
-                        data: [
-                            stations.M177 ? stations.M177.bank : 243.30, 
-                            stations.M192 ? stations.M192.bank : 203.90, 
-                            stations.M191 ? stations.M191.bank : 195.30, 
-                            stations.M164 ? stations.M164.bank : 177.60
-                        ],
-                        borderColor: '#dc2626',
-                        borderDash: [6, 4],
-                        borderWidth: 2,
-                        fill: false,
-                        pointStyle: 'rectRot',
-                        pointRadius: 5,
-                        pointBackgroundColor: '#dc2626'
-                    }
-                ]
-            },
-            options: { 
-                responsive: true, 
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'top' }
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (window.waterChartObj) window.waterChartObj.destroy();
+    window.waterChartObj = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [
+                'M.177 ลาดบัวขาว (อ.สีคิ้ว)', 
+                'M.192 โนนค่า (อ.สูงเนิน)', 
+                'M.191 โคกกรวด (อ.เมือง)', 
+                'M.164 VIP (ต.ในเมือง)'
+            ],
+            datasets: [
+                {
+                    label: 'ระดับน้ำปัจจุบัน (ม.รทก.)',
+                    data: [
+                        stations.M177 ? stations.M177.level : 0, 
+                        stations.M192 ? stations.M192.level : 0, 
+                        stations.M191 ? stations.M191.level : 0, 
+                        stations.M164 ? stations.M164.level : 0
+                    ],
+                    borderColor: '#0284c7',
+                    backgroundColor: 'rgba(2, 132, 199, 0.15)',
+                    borderWidth: 2.5,
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#0284c7'
                 },
-                scales: {
-                    y: { 
-                        grid: { color: '#f1f5f9' },
-                        title: { display: true, text: 'ระดับน้ำ (ม.รทก.)', font: { size: 11 } }
-                    },
-                    x: { grid: { display: false } }
+                {
+                    label: 'ระดับตลิ่ง (ม.รทก.)',
+                    data: [
+                        stations.M177 ? stations.M177.bank : 243.30, 
+                        stations.M192 ? stations.M192.bank : 203.90, 
+                        stations.M191 ? stations.M191.bank : 195.30, 
+                        stations.M164 ? stations.M164.bank : 177.60
+                    ],
+                    borderColor: '#dc2626',
+                    borderDash: [6, 4],
+                    borderWidth: 2,
+                    fill: false,
+                    pointStyle: 'rectRot',
+                    pointRadius: 5,
+                    pointBackgroundColor: '#dc2626'
                 }
+            ]
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' } },
+            scales: {
+                y: { grid: { color: '#f1f5f9' }, title: { display: true, text: 'ระดับน้ำ (ม.รทก.)', font: { size: 11 } } },
+                x: { grid: { display: false } }
             }
-        });
-    }
+        }
+    });
 }
 
 function updateCommunityAlerts(stations, rain24h) {
     const alertGrid = document.getElementById('alert-grid');
-    if (!alertGrid) return;
+    if (!alertGrid || typeof COMMUNITIES === 'undefined') return;
     alertGrid.innerHTML = '';
 
     COMMUNITIES.forEach(c => {
         const currentWater = stations[c.stationRef] ? stations[c.stationRef].level : 0;
-        const evalResult = evaluateCommunityRisk(c, currentWater, rain24h);
+        const evalResult = evaluateCommunityRisk(c, currentWater, rain24h || 0);
 
         const card = document.createElement('div');
         card.className = `p-3.5 rounded-xl border ${evalResult.colorClass} flex justify-between items-center shadow-xs transition hover:shadow-md`;
