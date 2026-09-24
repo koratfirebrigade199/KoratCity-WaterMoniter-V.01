@@ -1,60 +1,158 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. โหลดข้อมูลน้ำครั้งแรกทันที
+    // 1. โหลดข้อมูลครั้งแรกทันที
     loadDashboardData();
-    
-    // 2. ตั้งเวลา Auto-Update ข้อมูลน้ำทุก 1 ชั่วโมง (3,600,000 ms)
+
+    // 2. ตั้ง Auto-Update ทุก 1 ชั่วโมง (3,600,000 มิลลิวินาที)
     setInterval(loadDashboardData, 3600000);
 
-    // 3. โหลดและตั้งระบบอัปเดตพยากรณ์อากาศรอบ 08:00 น.
+    // 3. ป้องกันปัญหา Browser Sleep: เมื่อสลับแท็บกลับมาหน้าเว็บ ให้ตรวจว่าครบ 1 ชม. แล้วหรือยังเพื่อกดดึงทันที
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            const lastFetch = localStorage.getItem('last_fetch_time');
+            const now = new Date().getTime();
+            // ถ้าดึงครั้งล่าสุดเกิน 1 ชม. (3600 วิ) ให้ดึงใหม่ทันที
+            if (!lastFetch || (now - parseInt(lastFetch)) > 3600000) {
+                loadDashboardData();
+            }
+        }
+    });
+
+    // 4. ตั้งระบบพยากรณ์อากาศรอบ 08.00 น.
     loadWeatherData();
     scheduleEightAMUpdate();
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังโหลดข้อมูล...");
+    updateStatusText("⏳ กำลังอัปเดตข้อมูลล่าสุด...");
+    localStorage.setItem('last_fetch_time', new Date().getTime().toString());
 
+    // 1. ดึง Local JSON มาสำรองไว้ก่อน
     let localData = null;
-
-    // โหลดข้อมูล Local ทันทีเพื่อความรวดเร็ว
     try {
         const cacheBuster = new Date().getTime();
         const res = await fetch(`data/latest_data.json?v=${cacheBuster}`);
         if (res.ok) {
             localData = await res.json();
             renderAllUI(localData.dam, localData.rainfall, localData.waterLevels);
-            if (localData.updatedAt) {
-                const updatedDate = new Date(localData.updatedAt);
-                updateStatusText(`ข้อมูลล่าสุด: ${updatedDate.toLocaleDateString('th-TH')} ${updatedDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`);
-            }
         }
     } catch (err) {
-        console.warn("ไม่สามารถดึงข้อมูล Local JSON ได้:", err);
+        console.warn("ไม่สามารถดึง Local JSON ได้:", err);
     }
 
-    // ยิง API ดึงข้อมูลสด (Timeout 2 วินาที)
-    const [liveDam, liveRain] = await Promise.all([
+    // 2. ดึงข้อมูลสดผ่าน Multi-CORS Proxy สลับอัตโนมัติหากติดปัญหา
+    const [liveDam, liveRain, liveWater] = await Promise.all([
         fetchLiveDamData(),
-        fetchLiveRainData()
+        fetchLiveRainData(),
+        fetchLiveWaterLevels()
     ]);
 
-    if (liveDam || liveRain) {
-        const finalDam = liveDam || (localData ? localData.dam : null);
-        const finalRain = liveRain || (localData ? localData.rainfall : null);
-        const finalWaterLevels = localData ? localData.waterLevels : null;
+    // 3. นำข้อมูลสดมา Render ทับ (ถ้าดึงสดไม่สำเร็จ จะใช้ Local สำรอง)
+    const finalDam = liveDam || (localData ? localData.dam : null);
+    const finalRain = liveRain || (localData ? localData.rainfall : null);
+    const finalWaterLevels = liveWater || (localData ? localData.waterLevels : null);
 
-        renderAllUI(finalDam, finalRain, finalWaterLevels);
+    renderAllUI(finalDam, finalRain, finalWaterLevels);
 
-        const now = new Date();
-        updateStatusText(`อัปเดตสด: ${now.toLocaleDateString('th-TH')} ${now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น. (รีเฟรชทุก 1 ชม.)`);
-    }
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = now.toLocaleDateString('th-TH');
+    
+    updateStatusText(`อัปเดตล่าสุด: ${dateStr} เวลา ${timeStr} น. (อัตโนมัติทุก 1 ชม.)`);
 }
 
 // ----------------------------------------------------
-// ระบบพยากรณ์อากาศกรมอุตุนิยมวิทยา (เทศบาลนครนครราชสีมา)
+// ระบบ Fetch ข้อมูลพร้อม Proxy สำรอง (Fallback Multi-Proxy)
+// ----------------------------------------------------
+async function fetchWithFallback(targetUrl) {
+    const proxies = [
+        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`
+    ];
+
+    for (const proxy of proxies) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000); // ให้เวลา 4 วินาที
+
+            const res = await fetch(`${proxy}&_t=${new Date().getTime()}`, { signal: controller.signal });
+            clearTimeout(timeoutId);
+
+            if (res.ok) {
+                const text = await res.text();
+                return JSON.parse(text);
+            }
+        } catch (e) {
+            // ลอง Proxy ตัวถัดไป
+        }
+    }
+    return null;
+}
+
+async function fetchLiveDamData() {
+    const data = await fetchWithFallback('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/dam_storage');
+    if (data && data.dam_storage) {
+        const lamTakhong = data.dam_storage.find(d => (d.dam?.dam_name?.th || '').includes('ลำตะคอง'));
+        if (lamTakhong) {
+            return {
+                capacity: parseFloat(lamTakhong.dam_capacity) || 314.49,
+                volume: parseFloat(lamTakhong.dam_storage) || 0,
+                inflow: parseFloat(lamTakhong.dam_inflow) || 0,
+                outflow: parseFloat(lamTakhong.dam_uses) || 0
+            };
+        }
+    }
+    return null;
+}
+
+async function fetchLiveRainData() {
+    const data = await fetchWithFallback('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/rain_24h');
+    if (data && data.data) {
+        const target = data.data.find(s => (s.station?.tele_station_name?.th || '').includes('หนองไผ่ล้อม'));
+        if (target) {
+            return {
+                stationName: target.station?.tele_station_name?.th || "ต.หนองไผ่ล้อม",
+                rain24h: parseFloat(target.rain_24h) || 0
+            };
+        }
+    }
+    return null;
+}
+
+async function fetchLiveWaterLevels() {
+    const data = await fetchWithFallback('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load');
+    if (data && data.data) {
+        const stations = data.data;
+        const result = {};
+
+        const mappings = [
+            { code: 'M177', key: 'M.177', name: 'บ้านลาดบัวขาว', bank: 243.30 },
+            { code: 'M192', key: 'M.192', name: 'บ้านโนนค่า', bank: 203.90 },
+            { code: 'M191', key: 'M.191', name: 'บ้านโคกกรวด', bank: 195.30 },
+            { code: 'M164', key: 'M.164', name: 'สะพาน VIP', bank: 177.60 }
+        ];
+
+        mappings.forEach(m => {
+            const st = stations.find(s => (s.station?.tele_station_name?.th || '').includes(m.key) || (s.station?.tele_station_old_code || '') === m.code);
+            if (st) {
+                result[m.code] = {
+                    code: m.code,
+                    name: m.name,
+                    level: parseFloat(st.waterlevel_msl) || 0,
+                    bank: m.bank
+                };
+            }
+        });
+
+        if (Object.keys(result).length > 0) return result;
+    }
+    return null;
+}
+
+// ----------------------------------------------------
+// พยากรณ์อากาศกรมอุตุนิยมวิทยา (08:00 น.)
 // ----------------------------------------------------
 async function loadWeatherData() {
     try {
-        // ใช้ Open-Meteo API อ้างอิงพิกัด อ.เมืองนครราชสีมา (14.97, 102.10)
         const lat = 14.9799;
         const lon = 102.0978;
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max&timezone=Asia%2FBangkok`;
@@ -64,21 +162,13 @@ async function loadWeatherData() {
             const data = await res.json();
             const daily = data.daily;
             if (daily) {
-                const weatherCode = daily.weathercode[0];
-                const maxTemp = daily.temperature_2m_max[0];
-                const minTemp = daily.temperature_2m_min[0];
-                const rainProb = daily.precipitation_probability_max[0];
-                const windSpeed = daily.windspeed_10m_max[0];
-
-                updateWeatherUI(weatherCode, maxTemp, minTemp, rainProb, windSpeed);
+                updateWeatherUI(daily.weathercode[0], daily.temperature_2m_max[0], daily.temperature_2m_min[0], daily.precipitation_probability_max[0], daily.windspeed_10m_max[0]);
                 return;
             }
         }
     } catch (e) {
-        console.warn("ไม่สามารถดึงพยากรณ์อากาศสดได้ ใช้ค่าสำรองแทน:", e);
+        console.warn("ดึงพยากรณ์อากาศล้มเหลว:", e);
     }
-
-    // ค่าสำรองกรณี API มีปัญหา
     updateWeatherUI(2, 33, 24, 40, 12);
 }
 
@@ -110,23 +200,25 @@ function getWeatherDescription(code) {
     return "⛅ อากาศเปลี่ยนแปลงตามฤดูกาล";
 }
 
-// ตั้งเวลาสั่งงานให้ดึงพยากรณ์อากาศใหม่เมื่อถึงเวลา 08:00 น. ของทุกวัน
 function scheduleEightAMUpdate() {
     const now = new Date();
     const eightAM = new Date();
     eightAM.setHours(8, 0, 0, 0);
 
     if (now > eightAM) {
-        eightAM.setDate(eightAM.getDate() + 1); // ถ้าเลย 8 โมงวันนี้ไปแล้ว ให้ตั้งเป็น 8 โมงวันพรุ่งนี้
+        eightAM.setDate(eightAM.getDate() + 1);
     }
 
     const timeUntil8AM = eightAM.getTime() - now.getTime();
     setTimeout(() => {
         loadWeatherData();
-        setInterval(loadWeatherData, 24 * 60 * 60 * 1000); // วนรอบลูปทุก 24 ชม.
+        setInterval(loadWeatherData, 24 * 60 * 60 * 1000);
     }, timeUntil8AM);
 }
 
+// ----------------------------------------------------
+// UI Renderers & Chart
+// ----------------------------------------------------
 function renderAllUI(dam, rain, waterLevels) {
     if (dam) updateDamUI(dam);
     if (rain) updateRainUI(rain);
@@ -134,67 +226,6 @@ function renderAllUI(dam, rain, waterLevels) {
         updateWaterLevelUI(waterLevels);
         renderWaterLevelChart(waterLevels);
     }
-}
-
-// ----------------------------------------------------
-// API Fetchers & UI Renderers อื่นๆ
-// ----------------------------------------------------
-async function fetchLiveDamData() {
-    try {
-        const targetUrl = 'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/dam_storage';
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&_=${new Date().getTime()}`;
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-        const res = await fetch(proxyUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-            const json = await res.json();
-            const data = JSON.parse(json.contents);
-            const dams = data.dam_storage || [];
-            const lamTakhong = dams.find(d => (d.dam?.dam_name?.th || '').includes('ลำตะคอง'));
-            
-            if (lamTakhong) {
-                return {
-                    capacity: parseFloat(lamTakhong.dam_capacity) || 314.49,
-                    volume: parseFloat(lamTakhong.dam_storage) || 0,
-                    inflow: parseFloat(lamTakhong.dam_inflow) || 0,
-                    outflow: parseFloat(lamTakhong.dam_uses) || 0
-                };
-            }
-        }
-    } catch (e) {}
-    return null;
-}
-
-async function fetchLiveRainData() {
-    try {
-        const targetUrl = 'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/rain_24h';
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&_=${new Date().getTime()}`;
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-        const res = await fetch(proxyUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-            const json = await res.json();
-            const data = JSON.parse(json.contents);
-            const stations = data.data || [];
-            const target = stations.find(s => (s.station?.tele_station_name?.th || '').includes('หนองไผ่ล้อม'));
-            
-            if (target) {
-                return {
-                    stationName: target.station?.tele_station_name?.th || "ต.หนองไผ่ล้อม",
-                    rain24h: parseFloat(target.rain_24h) || 0
-                };
-            }
-        }
-    } catch (e) {}
-    return null;
 }
 
 function updateDamUI(dam) {
