@@ -1,11 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
     fetchData();
-    setInterval(fetchData, 600000); // เรียกเช็คข้อมูลใหม่ทุก 10 นาที
+    setInterval(fetchData, 300000); // เช็คการอัปเดตทุก 5 นาที
 });
 
 async function fetchData() {
     try {
-        // ใส่ timestamp เพื่อป้องกันการจำค่า Cache ของเบราว์เซอร์
+        // เติม ?t=timestamp เพื่อบังคับไม่ให้ Browser จำ Cache เดิม
         const response = await fetch('data/latest_data.json?t=' + new Date().getTime());
         
         if (!response.ok) {
@@ -15,17 +15,17 @@ async function fetchData() {
         const data = await response.json();
         renderDashboard(data);
     } catch (e) {
-        console.error("ไม่สามารถดึงข้อมูลล่าสุดได้:", e);
+        console.error("ดึงข้อมูลไม่สำเร็จ:", e);
     }
 }
 
 function renderDashboard(data) {
-    updateRainSection(data.rainfall);
-    updateDamSection(data.dam);
+    if (data.dam) updateDamSection(data.dam);
+    if (data.rainfall) updateRainSection(data.rainfall);
     if (data.waterLevels) updateWaterLevelChart(data.waterLevels);
     if (data.waterLevels && data.rainfall) updateCommunityAlerts(data.waterLevels, data.rainfall.rain24h);
     
-    // แสดงเวลาอัปเดตจริงของข้อมูล
+    // แสดงเวลาที่ระบบไปดึงข้อมูลจริงจาก ThaiWater
     const updateElem = document.getElementById('last-update');
     if (updateElem) {
         const updateDate = data.updatedAt ? new Date(data.updatedAt) : new Date();
@@ -34,12 +34,10 @@ function renderDashboard(data) {
 }
 
 function updateDamSection(damData) {
-    if (!damData) return;
-
     const capacity = damData.capacity || 314.49;
     const volume = damData.volume || 0;
     
-    // คำนวณ % น้ำในอ่างจริงตามสูตร: (น้ำในอ่าง / ความจุอ่าง) * 100
+    // คำนวณ % กักเก็บจริง = (น้ำในอ่าง / ความจุอ่าง) * 100
     const percent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
 
     const capElem = document.getElementById('dam-capacity');
@@ -52,10 +50,10 @@ function updateDamSection(damData) {
     if (pctElem) pctElem.innerText = `${percent}%`;
     
     const inflowElem = document.getElementById('dam-inflow');
-    if (inflowElem) inflowElem.innerHTML = `${Number(damData.inflow).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
+    if (inflowElem) inflowElem.innerHTML = `${Number(damData.inflow || 0).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
     
     const outflowElem = document.getElementById('dam-outflow');
-    if (outflowElem) outflowElem.innerHTML = `${Number(damData.outflow).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
+    if (outflowElem) outflowElem.innerHTML = `${Number(damData.outflow || 0).toFixed(2)} <span class="text-xs font-normal text-slate-500">ล้าน ลบ.ม./วัน</span>`;
 
     const sourceLink = document.getElementById('dam-source-link');
     if (sourceLink && damData.sourceUrl) {
@@ -64,7 +62,6 @@ function updateDamSection(damData) {
 }
 
 function updateRainSection(rainData) {
-    if (!rainData) return;
     const rainElem = document.getElementById('rain-24h');
     if (rainElem) rainElem.innerHTML = `${(rainData.rain24h || 0).toFixed(1)} <span class="text-xs font-normal">มม.</span>`;
     
