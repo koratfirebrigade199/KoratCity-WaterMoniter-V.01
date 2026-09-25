@@ -154,41 +154,15 @@ async function fetchLiveRainData() {
         }
     }
 
-    // หาก API ขัดข้อง ดึงค่าประมาณการณ์ฝนจริง
     if (rainVal === null) {
         rainVal = 0.0;
     }
 
-    const history7Days = generateWeeklyRainHistory(rainVal);
-
     return {
         stationName: stationTitle,
         rain24h: rainVal,
-        dateStr: dateFormatted,
-        history: history7Days
+        dateStr: dateFormatted
     };
-}
-
-function generateWeeklyRainHistory(currentVal) {
-    const labels = [];
-    const values = [];
-    const today = new Date();
-
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(today.getDate() - i);
-        const dayName = d.toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric' });
-        labels.push(dayName);
-
-        if (i === 0) {
-            values.push(currentVal);
-        } else {
-            const mockVals = [0.0, 1.2, 8.5, 0.0, 3.4, 0.0];
-            values.push(mockVals[6 - i] || 0.0);
-        }
-    }
-
-    return { labels, values };
 }
 
 // ----------------------------------------------------
@@ -296,10 +270,7 @@ function scheduleEightAMUpdate() {
 // ----------------------------------------------------
 function renderAllUI(dam, rain, waterLevels) {
     if (dam) updateDamUI(dam);
-    if (rain) {
-        updateRainUI(rain);
-        renderWeeklyRainChart(rain.history);
-    }
+    if (rain) updateRainUI(rain);
     if (waterLevels) {
         updateWaterLevelUI(waterLevels);
         renderWaterLevelChart(waterLevels);
@@ -313,7 +284,7 @@ function updateDamUI(dam) {
     const percent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
 
     if (document.getElementById('dam-capacity')) document.getElementById('dam-capacity').innerText = capacity.toFixed(2);
-    if (document.getElementById('dam-volume')) document.getElementById('dam-volume').innerHTML = `${volume.toFixed(2)} <span class="text-[10px] text-slate-500 font-normal">มล.ลบ.ม.</span>`;
+    if (document.getElementById('dam-volume')) document.getElementById('dam-volume').innerHTML = `${volume.toFixed(2)} <span class="text-xs font-normal text-slate-500">มล.ลบ.ม.</span>`;
     if (document.getElementById('dam-percent')) document.getElementById('dam-percent').innerText = `${percent}%`;
     if (document.getElementById('dam-inflow')) document.getElementById('dam-inflow').innerText = Number(dam.inflow || 0).toFixed(2);
     if (document.getElementById('dam-outflow')) document.getElementById('dam-outflow').innerText = Number(dam.outflow || 0).toFixed(2);
@@ -329,41 +300,6 @@ function updateRainUI(rain) {
     else if (rain.rain24h > 35) statusText = "🌦️ ฝนตกปานกลาง";
     else if (rain.rain24h > 0.1) statusText = "🌤️ ฝนตกเล็กน้อย";
     if (document.getElementById('rain-status')) document.getElementById('rain-status').innerText = statusText;
-}
-
-function renderWeeklyRainChart(history) {
-    const canvas = document.getElementById('weeklyRainChart');
-    if (!canvas || typeof Chart === 'undefined' || !history) return;
-
-    const ctx = canvas.getContext('2d');
-    if (window.weeklyRainChartObj) window.weeklyRainChartObj.destroy();
-
-    window.weeklyRainChartObj = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: history.labels,
-            datasets: [{
-                label: 'ฝนสะสม (มม.)',
-                data: history.values,
-                backgroundColor: 'rgba(16, 185, 129, 0.75)',
-                borderColor: '#059669',
-                borderWidth: 1,
-                borderRadius: 6
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                title: { display: true, text: 'แนวโน้มปริมาณฝนสะสม 7 วันย้อนหลัง (มม.)', font: { size: 11, family: 'Prompt' } }
-            },
-            scales: {
-                y: { beginAtZero: true, ticks: { font: { size: 10 } } },
-                x: { ticks: { font: { size: 10 } } }
-            }
-        }
-    });
 }
 
 function updateWaterLevelUI(stations) {
