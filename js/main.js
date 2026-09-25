@@ -92,7 +92,8 @@ async function fetchLiveDamData() {
 }
 
 // ----------------------------------------------------
-// 2. ดึงข้อมูลปริมาณฝนสะสม
+// 2. ดึงข้อมูลปริมาณฝนสะสม 24 ชม.
+// สถานีนครราชสีมา ต.หนองไผ่ล้อม อ.เมืองนครราชสีมา (พิกัด 14.9683, 102.08603) กรมอุตุนิยมวิทยา
 // ----------------------------------------------------
 async function fetchLiveRainData() {
     const rawData = await fetchWithMultiProxy('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/rain_24h');
@@ -100,30 +101,51 @@ async function fetchLiveRainData() {
     if (rawData && rawData.data && Array.isArray(rawData.data)) {
         const stations = rawData.data;
 
+        // เงื่อนไขที่ 1: ตรวจสอบจากพิกัด (14.9683, 102.08603) และสังกัดกรมอุตุฯ (TMD)
         let targetStation = stations.find(s => {
-            const name = s.station?.tele_station_name?.th || '';
-            const subdistrict = s.geocode?.subdistrict_name?.th || '';
-            return name.includes('หนองไผ่ล้อม') || subdistrict.includes('หนองไผ่ล้อม');
+            const lat = parseFloat(s.station?.tele_station_lat || s.lat || 0);
+            const long = parseFloat(s.station?.tele_station_long || s.long || 0);
+            const agency = (s.agency?.agency_name?.th || s.agency?.agency_shortname?.th || '').toUpperCase();
+            
+            const isCoordMatch = (Math.abs(lat - 14.9683) < 0.01) && (Math.abs(long - 102.08603) < 0.01);
+            const isTMD = agency.includes('กรมอุตุนิยมวิทยา') || agency.includes('TMD');
+
+            return isCoordMatch && isTMD;
         });
 
+        // เงื่อนไขที่ 2: หากค้นด้วยพิกัดไม่เจอ ให้ค้นจากชื่อสถานี "นครราชสีมา" + สังกัดกรมอุตุนิยมวิทยา ใน ต.หนองไผ่ล้อม
         if (!targetStation) {
             targetStation = stations.find(s => {
                 const name = s.station?.tele_station_name?.th || '';
-                const district = s.geocode?.district_name?.th || '';
-                return (name.includes('เทศบาลนคร') || name.includes('เมืองนครราชสีมา')) && district.includes('เมืองนครราชสีมา');
+                const subdistrict = s.geocode?.subdistrict_name?.th || '';
+                const agency = (s.agency?.agency_name?.th || s.agency?.agency_shortname?.th || '').toUpperCase();
+
+                const isNameMatch = name.includes('นครราชสีมา') || name.includes('หนองไผ่ล้อม') || subdistrict.includes('หนองไผ่ล้อม');
+                const isTMD = agency.includes('กรมอุตุนิยมวิทยา') || agency.includes('TMD');
+
+                return isNameMatch && isTMD;
+            });
+        }
+
+        // เงื่อนไขที่ 3: หากยังไม่พบ ค้นหาสถานี ต.หนองไผ่ล้อม ใน อ.เมืองนครราชสีมา
+        if (!targetStation) {
+            targetStation = stations.find(s => {
+                const name = s.station?.tele_station_name?.th || '';
+                const subdistrict = s.geocode?.subdistrict_name?.th || '';
+                return name.includes('หนองไผ่ล้อม') || subdistrict.includes('หนองไผ่ล้อม');
             });
         }
 
         if (targetStation) {
             const rainVal = parseFloat(targetStation.rain_24h);
             return {
-                stationName: targetStation.station?.tele_station_name?.th || "ต.หนองไผ่ล้อม อ.เมืองนครราชสีมา",
+                stationName: "สถานีนครราชสีมา ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา)",
                 rain24h: !isNaN(rainVal) ? rainVal : 0.0
             };
         }
     }
 
-    return { stationName: "ต.หนองไผ่ล้อม อ.เมืองนครราชสีมา", rain24h: 0.0 };
+    return { stationName: "สถานีนครราชสีมา ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา)", rain24h: 0.0 };
 }
 
 // ----------------------------------------------------
@@ -132,7 +154,6 @@ async function fetchLiveRainData() {
 async function fetchLiveWaterLevels() {
     const rawData = await fetchWithMultiProxy('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load');
     
-    // โครงสร้างค่าเริ่มต้น
     const stations = {
         M177: { code: 'M.177', name: 'บ้านลาดบัวขาว', level: 238.50, bank: 243.30, flow: 12.40 },
         M192: { code: 'M.192', name: 'บ้านโนนค่า', level: 198.20, bank: 203.90, flow: 8.50 },
@@ -145,7 +166,7 @@ async function fetchLiveWaterLevels() {
             const stName = st.station?.tele_station_name?.th || '';
             const stCode = st.station?.tele_station_old_code || '';
             const levelVal = parseFloat(st.waterlevel_msl);
-            const flowVal = parseFloat(st.discharge); // ดึงค่าอัตราการไหล (cms)
+            const flowVal = parseFloat(st.discharge);
 
             const assignData = (key) => {
                 if (!isNaN(levelVal) && levelVal > 0) stations[key].level = levelVal;
@@ -167,8 +188,8 @@ async function fetchLiveWaterLevels() {
 // ----------------------------------------------------
 async function loadWeatherData() {
     try {
-        const lat = 14.9799;
-        const lon = 102.0978;
+        const lat = 14.9683;
+        const lon = 102.08603;
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max&timezone=Asia%2FBangkok`;
 
         const res = await fetch(url);
@@ -253,7 +274,7 @@ function updateDamUI(dam) {
 }
 
 function updateRainUI(rain) {
-    if (document.getElementById('rain-station-name')) document.getElementById('rain-station-name').innerText = rain.stationName || "ต.หนองไผ่ล้อม";
+    if (document.getElementById('rain-station-name')) document.getElementById('rain-station-name').innerText = rain.stationName || "สถานีนครราชสีมา ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา)";
     if (document.getElementById('rain-24h')) document.getElementById('rain-24h').innerHTML = `${Number(rain.rain24h || 0).toFixed(1)} <span class="text-xs font-normal text-slate-500">มม.</span>`;
     
     let statusText = "ไม่มีฝนตก";
