@@ -59,7 +59,7 @@
                         <span class="text-2xl">🚨</span>
                         <h2 class="text-lg font-bold text-slate-800">ระบบแจ้งเตือนภัยชุมชนตลอดแนวลุ่มน้ำลำตะคอง</h2>
                     </div>
-                    <p class="text-xs text-slate-500 mt-1">ประเมินสถานการณ์จากระดับน้ำเทียบตลิ่งสถานี M.191, M.164 และปริมาณน้ำฝนสะสมในพื้นที่</p>
+                    <p class="text-xs text-slate-500 mt-1">ประเมินสถานการณ์จากระดับน้ำเทียบตลิ่งสถานี M.191, สะพานเวนิสพาร์ค (LocalGov.ai), M.164 และปริมาณฝนสะสม</p>
                 </div>
                 <div class="flex flex-wrap gap-2 text-[11px] font-medium">
                     <span class="px-2 py-1 rounded bg-red-100 text-red-800 border border-red-200">🔴 วิกฤต (ล้นตลิ่ง)</span>
@@ -149,7 +149,7 @@
                 </div>
             </div>
 
-            <!-- การ์ดสถานีฝน ต.หนองไผ่ล้อม (ปรับปรุงไม่มีกราฟ) -->
+            <!-- การ์ดสถานีฝน ต.หนองไผ่ล้อม -->
             <div class="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 sm:p-6 transition hover:shadow-md flex flex-col justify-between">
                 <div>
                     <div class="flex justify-between items-start gap-2 mb-2">
@@ -181,23 +181,28 @@
 
         </div>
 
-        <!-- Section: กราฟ & ตารางแสดงระดับน้ำ -->
+        <!-- Section: กราฟ & ตารางแสดงระดับน้ำ รวมสถานีโทรมาตรเวนิสพาร์ค (LocalGov.ai) -->
         <div class="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 sm:p-6 transition hover:shadow-md space-y-5">
             <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                 <div>
                     <h2 class="text-lg font-bold text-slate-800">ระดับน้ำและอัตราการไหล ลำน้ำลำตะคอง (ม.รทก. / ลบ.ม./วินาที)</h2>
-                    <p class="text-xs text-slate-500">เปรียบเทียบระดับน้ำปัจจุบันกับระดับตลิ่งอ้างอิง และปริมาณน้ำไหลผ่านแต่ละสถานี (M.177, M.192, M.191, M.164)</p>
+                    <p class="text-xs text-slate-500">เปรียบเทียบระดับน้ำปัจจุบันกับระดับตลิ่งอ้างอิงสถานี ThaiWater และโทรมาตรสะพานเดอะเวนิสพาร์ค (LocalGov.ai)</p>
                 </div>
-                <a href="https://nakhonratchasima.thaiwater.net/wl" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-600 hover:text-sky-800 hover:underline">
-                    ดูสถานีทั้งหมดบน ThaiWater 🔗
-                </a>
+                <div class="flex items-center gap-3 text-xs">
+                    <a href="https://localgov.ai" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800 hover:underline">
+                        LocalGov.ai 🔗
+                    </a>
+                    <a href="https://nakhonratchasima.thaiwater.net/wl" target="_blank" rel="noopener noreferrer" class="text-sky-600 hover:text-sky-800 hover:underline">
+                        ThaiWater 🔗
+                    </a>
+                </div>
             </div>
 
             <div class="h-64 sm:h-72 w-full">
                 <canvas id="waterLevelChart"></canvas>
             </div>
 
-            <div id="water-level-details" class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+            <div id="water-level-details" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
                 <!-- JavaScript Render ข้อมูลตรงนี้ -->
             </div>
         </div>
@@ -228,7 +233,7 @@
         <div class="max-w-7xl mx-auto px-4 text-center text-xs space-y-2">
             <p class="font-medium text-slate-300">ระบบติดตามข้อมูลน้ำ สภาพอากาศ และแจ้งเตือนภัยน้ำท่วม</p>
             <p>งานศูนย์ป้องกันและบรรเทาสาธารณภัย เทศบาลนครนครราชสีมา</p>
-            <p class="text-slate-500 text-[11px] pt-1">เชื่อมโยงข้อมูลจาก กรมอุตุนิยมวิทยา, คลังข้อมูลน้ำแห่งชาติ (ThaiWater) & กรมชลประทาน</p>
+            <p class="text-slate-500 text-[11px] pt-1">เชื่อมโยงข้อมูลจาก กรมอุตุนิยมวิทยา, ThaiWater, LocalGov.ai & กรมชลประทาน</p>
         </div>
     </footer>
 
