@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. ตั้ง Auto-Update ทุก 1 ชั่วโมง (3,600,000 มิลลิวินาที)
     setInterval(loadDashboardData, 3600000);
 
-    // 3. ป้องกันปัญหา Browser Sleep: เมื่อสลับแท็บกลับมาหน้าเว็บ ให้ดึงข้อมูลสดทันทีถ้าเกิน 1 ชม.
+    // 3. ป้องกัน Browser Sleep: เมื่อสลับแท็บกลับมาหน้าเว็บ ให้ดึงข้อมูลสดทันทีถ้าเกิน 1 ชม.
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
             const lastFetch = localStorage.getItem('last_rain_fetch_time');
@@ -25,12 +25,10 @@ async function loadDashboardData() {
     updateStatusText("⏳ กำลังดึงข้อมูลสดล่าสุด...");
     localStorage.setItem('last_rain_fetch_time', new Date().getTime().toString());
 
-    // ดึงข้อมูลสดพร้อมล้างแคช
     const damData = await fetchLiveDamData();
     const rainData = await fetchLiveRainData();
     const waterData = await fetchLiveWaterLevels();
 
-    // Render ข้อมูลขึ้น UI
     renderAllUI(damData, rainData, waterData);
 
     const now = new Date();
@@ -122,7 +120,6 @@ async function fetchLiveRainData() {
     if (rawData && rawData.data && Array.isArray(rawData.data)) {
         const stations = rawData.data;
 
-        // เงื่อนไขที่ 1: ค้นหาเจาะจงพิกัด (14.9683, 102.08603) + สังกัดกรมอุตุนิยมวิทยา (TMD)
         let targetStation = stations.find(s => {
             const lat = parseFloat(s.station?.tele_station_lat || s.lat || 0);
             const long = parseFloat(s.station?.tele_station_long || s.long || 0);
@@ -134,7 +131,6 @@ async function fetchLiveRainData() {
             return isCoordMatch && isTMD;
         });
 
-        // เงื่อนไขที่ 2: หากหาด้วยพิกัดไม่เจอ ให้ค้นหาด้วยชื่อสถานี "นครราชสีมา" หรือ "หนองไผ่ล้อม" + TMD
         if (!targetStation) {
             targetStation = stations.find(s => {
                 const name = s.station?.tele_station_name?.th || '';
@@ -148,7 +144,6 @@ async function fetchLiveRainData() {
             });
         }
 
-        // เงื่อนไขที่ 3: ค้นหาสถานีฝนใน ต.หนองไผ่ล้อม / อ.เมืองนครราชสีมา
         if (!targetStation) {
             targetStation = stations.find(s => {
                 const name = s.station?.tele_station_name?.th || '';
@@ -296,7 +291,7 @@ function updateDamUI(dam) {
     const percent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
 
     if (document.getElementById('dam-capacity')) document.getElementById('dam-capacity').innerText = capacity.toFixed(2);
-    if (document.getElementById('dam-volume')) document.getElementById('dam-volume').innerHTML = `${volume.toFixed(2)} <span class="text-xs font-normal text-slate-500">มล.ลบ.ม.</span>`;
+    if (document.getElementById('dam-volume')) document.getElementById('dam-volume').innerHTML = `${volume.toFixed(2)} <span class="text-xs font-normal text-slate-400">ลบ.ม.</span>`;
     if (document.getElementById('dam-percent')) document.getElementById('dam-percent').innerText = `${percent}%`;
     if (document.getElementById('dam-inflow')) document.getElementById('dam-inflow').innerText = Number(dam.inflow || 0).toFixed(2);
     if (document.getElementById('dam-outflow')) document.getElementById('dam-outflow').innerText = Number(dam.outflow || 0).toFixed(2);
@@ -326,16 +321,17 @@ function updateWaterLevelUI(stations) {
         const diff = (st.bank - st.level).toFixed(2);
         const isOverflow = st.level >= st.bank;
         const badge = isOverflow 
-            ? `<span class="bg-red-100 text-red-800 text-xs font-bold px-2.5 py-1 rounded-md">ล้นตลิ่ง ${Math.abs(diff)} ม.</span>`
-            : `<span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-1 rounded-md">ต่ำกว่าตลิ่ง ${diff} ม.</span>`;
+            ? `<span class="bg-red-50 text-red-700 border border-red-200 text-xs font-bold px-3 py-1 rounded-xl shadow-2xs">ล้นตลิ่ง ${Math.abs(diff)} ม.</span>`
+            : `<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold px-3 py-1 rounded-xl shadow-2xs">ต่ำกว่าตลิ่ง ${diff} ม.</span>`;
 
         html += `
-            <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+            <div class="p-4 bg-slate-50/70 rounded-2xl border border-slate-200/80 hover:bg-white hover:border-slate-300 transition-all flex flex-col sm:flex-row justify-between sm:items-center gap-3 shadow-2xs">
                 <div>
-                    <div class="font-bold text-sm text-slate-800">${st.code} - ${st.name}</div>
-                    <div class="text-xs text-slate-500 mt-1 space-y-0.5">
-                        <p>ระดับน้ำ: <strong class="text-slate-700">${st.level.toFixed(2)}</strong> ม.รทก. | ตลิ่ง: <strong class="text-slate-700">${st.bank.toFixed(2)}</strong> ม.รทก.</p>
-                        <p>อัตราการไหล: <strong class="text-sky-700">${st.flow !== undefined ? st.flow.toFixed(2) : '--'}</strong> ลบ.ม./วินาที (cms)</p>
+                    <div class="font-bold text-sm text-slate-900">${st.code} - ${st.name}</div>
+                    <div class="text-xs text-slate-500 mt-1.5 flex flex-wrap gap-3 font-medium">
+                        <span>ระดับน้ำ: <strong class="text-slate-800">${st.level.toFixed(2)}</strong> ม.รทก.</span>
+                        <span>ตลิ่ง: <strong class="text-slate-800">${st.bank.toFixed(2)}</strong> ม.รทก.</span>
+                        <span>อัตราการไหล: <strong class="text-sky-600">${st.flow !== undefined ? st.flow.toFixed(2) : '--'}</strong> ลบ.ม./วินาที (cms)</span>
                     </div>
                 </div>
                 <div>${badge}</div>
@@ -369,23 +365,23 @@ function renderCommunityAlerts(waterLevels, rain) {
         const effectiveMargin = (st.bank - st.level) + item.sensitivityOffset;
         
         let status = 'normal';
-        let badgeBg = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+        let badgeBg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
         let badgeIcon = '🟢 Normal';
         let advice = 'ระดับน้ำอยู่ในเกณฑ์ปลอดภัย ดำเนินชีวิตตามปกติ';
 
         if (effectiveMargin <= 0 || (st.level >= st.bank)) {
             status = 'critical';
-            badgeBg = 'bg-red-100 text-red-900 border-red-300 font-bold animate-pulse';
+            badgeBg = 'bg-red-100 text-red-800 border-red-300 font-bold animate-pulse';
             badgeIcon = '🔴 CRITICAL';
             advice = 'ยกของขึ้นที่สูงทันที! เตรียมพร้อมอพยพตามแผนป้องกันภัย';
         } else if (effectiveMargin < 0.5 || rainAmount > 70) {
             status = 'warning_mid';
-            badgeBg = 'bg-amber-100 text-amber-900 border-amber-300 font-bold';
+            badgeBg = 'bg-amber-100 text-amber-800 border-amber-300 font-bold';
             badgeIcon = '🟠 WARNING';
             advice = 'น้ำใกล้ล้นตลิ่ง เคลื่อนย้ายทรัพย์สินและยานพาหนะขึ้นที่สูง';
         } else if (effectiveMargin < 1.0 || rainAmount > 35) {
             status = 'warning_low';
-            badgeBg = 'bg-yellow-100 text-yellow-900 border-yellow-300';
+            badgeBg = 'bg-yellow-50 text-yellow-800 border-yellow-200';
             badgeIcon = '🟡 WATCH';
             advice = 'ติดตามข่าวสารและระดับน้ำอย่างใกล้ชิด ตรวจสอบกระสอบทราย';
         }
@@ -393,17 +389,17 @@ function renderCommunityAlerts(waterLevels, rain) {
         const marginDisplay = (st.bank - st.level).toFixed(2);
 
         html += `
-            <div class="p-4 rounded-xl border bg-slate-50/50 hover:bg-white transition shadow-xs flex flex-col justify-between">
+            <div class="p-4 rounded-2xl border bg-slate-50/50 hover:bg-white hover:border-slate-300 transition-all shadow-2xs flex flex-col justify-between">
                 <div>
                     <div class="flex items-start justify-between gap-2 mb-1.5">
-                        <h3 class="font-bold text-slate-800 text-sm leading-snug">${item.name}</h3>
-                        <span class="text-[10px] px-2 py-0.5 rounded-full border ${badgeBg} whitespace-nowrap">
+                        <h3 class="font-bold text-slate-900 text-sm leading-snug">${item.name}</h3>
+                        <span class="text-[10px] px-2.5 py-1 rounded-lg border ${badgeBg} whitespace-nowrap shadow-2xs">
                             ${badgeIcon}
                         </span>
                     </div>
-                    <p class="text-[11px] text-slate-500 mb-3">${item.zone}</p>
+                    <p class="text-[11px] text-slate-500 mb-3 font-medium">${item.zone}</p>
                     
-                    <div class="text-xs space-y-1 bg-white p-2.5 rounded-lg border border-slate-100 mb-3">
+                    <div class="text-xs space-y-1 bg-white p-3 rounded-xl border border-slate-100 mb-3 shadow-2xs">
                         <div class="flex justify-between">
                             <span class="text-slate-500">ระดับน้ำเทียบตลิ่ง:</span>
                             <span class="font-bold ${st.level >= st.bank ? 'text-red-600' : 'text-slate-700'}">
@@ -412,12 +408,12 @@ function renderCommunityAlerts(waterLevels, rain) {
                         </div>
                         <div class="flex justify-between text-[11px]">
                             <span class="text-slate-400">สถานีอ้างอิง:</span>
-                            <span class="text-slate-600">${st.code} (${st.level.toFixed(2)} ม.รทก. | ${st.flow !== undefined ? st.flow.toFixed(1) : '--'} cms)</span>
+                            <span class="text-slate-600 font-medium">${st.code} (${st.level.toFixed(2)} ม.รทก.)</span>
                         </div>
                     </div>
                 </div>
 
-                <div class="text-[11px] pt-2 border-t border-slate-200/60 font-medium ${status === 'critical' ? 'text-red-700 font-bold' : status === 'warning_mid' ? 'text-amber-800' : 'text-slate-600'}">
+                <div class="text-[11px] pt-2.5 border-t border-slate-200/60 font-semibold ${status === 'critical' ? 'text-red-700 font-bold' : status === 'warning_mid' ? 'text-amber-800' : 'text-slate-600'}">
                     💡 ${advice}
                 </div>
             </div>
@@ -443,18 +439,21 @@ function renderWaterLevelChart(stations) {
                     label: 'ระดับน้ำปัจจุบัน (ม.รทก.)',
                     data: [stations.M177.level, stations.M192.level, stations.M191.level, stations.M164.level],
                     borderColor: '#0284c7',
-                    backgroundColor: 'rgba(2, 132, 199, 0.15)',
-                    borderWidth: 2.5,
+                    backgroundColor: 'rgba(2, 132, 199, 0.1)',
+                    borderWidth: 3,
                     fill: true,
-                    tension: 0.3
+                    tension: 0.35,
+                    pointBackgroundColor: '#0284c7',
+                    pointRadius: 4
                 },
                 {
                     label: 'ระดับตลิ่ง (ม.รทก.)',
                     data: [stations.M177.bank, stations.M192.bank, stations.M191.bank, stations.M164.bank],
                     borderColor: '#dc2626',
-                    borderDash: [5, 5],
+                    borderDash: [6, 6],
                     borderWidth: 2,
-                    fill: false
+                    fill: false,
+                    pointRadius: 0
                 }
             ]
         },
@@ -462,8 +461,12 @@ function renderWaterLevelChart(stations) {
             responsive: true,
             maintainAspectRatio: false,
             plugins: { 
-                legend: { position: 'top' },
+                legend: { position: 'top', labels: { font: { family: 'Prompt', size: 12 } } },
                 tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                    titleFont: { family: 'Prompt', size: 13 },
+                    bodyFont: { family: 'Prompt', size: 12 },
+                    padding: 10,
                     callbacks: {
                         afterBody: function(context) {
                             const flows = [stations.M177.flow, stations.M192.flow, stations.M191.flow, stations.M164.flow];
@@ -472,6 +475,10 @@ function renderWaterLevelChart(stations) {
                         }
                     }
                 }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { font: { family: 'Prompt', size: 11 } } },
+                y: { grid: { color: 'rgba(226, 232, 240, 0.6)' }, ticks: { font: { family: 'Prompt', size: 11 } } }
             }
         }
     });
