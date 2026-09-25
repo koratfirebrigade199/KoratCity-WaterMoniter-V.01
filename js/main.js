@@ -1,16 +1,16 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. โหลดข้อมูลครั้งแรกทันที
+    // 1. โหลดข้อมูลครั้งแรกทันทีเมื่อเปิดเว็บ
     loadDashboardData();
 
-    // 2. ตั้ง Auto-Update ทุก 30 นาที (1,800,000 มิลลิวินาที) เพื่อความสดใหม่
-    setInterval(loadDashboardData, 1800000);
+    // 2. ตั้ง Auto-Update ทุกๆ 15 นาที (900,000 มิลลิวินาที) เพื่อให้ข้อมูลสดใหม่อยู่เสมอ
+    setInterval(loadDashboardData, 900000);
 
-    // 3. เมื่อผู้ใช้กลับมาเปิดแท็บนี้อีกครั้ง ให้เช็กและรีเฟรชทันทีหากเกิน 30 นาที
+    // 3. เมื่อสลับกลับมาเปิดแท็บนี้ ให้เช็กและรีเฟรชข้อมูลทันทีหากผ่านไปมากกว่า 15 นาที
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-            const lastFetch = localStorage.getItem('last_fetch_timestamp');
+            const lastFetch = localStorage.getItem('last_sync_time');
             const now = new Date().getTime();
-            if (!lastFetch || (now - parseInt(lastFetch)) >= 1800000) {
+            if (!lastFetch || (now - parseInt(lastFetch)) >= 900000) {
                 loadDashboardData();
             }
         }
@@ -21,9 +21,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังดึงข้อมูลสด...");
+    updateStatusText("⏳ กำลังดึงข้อมูลสดจากระบบ...");
     const timestamp = new Date().getTime();
-    localStorage.setItem('last_fetch_timestamp', timestamp.toString());
+    localStorage.setItem('last_sync_time', timestamp.toString());
 
     // ดึงข้อมูลพร้อมกันทุกส่วน
     const [damData, rainData, waterData] = await Promise.all([
@@ -42,28 +42,32 @@ async function loadDashboardData() {
 }
 
 // ----------------------------------------------------
-// ระบบดึงข้อมูลอัจฉริยะ (Multi-Proxy + Direct Fetch Support)
+// ระบบ Multi-Gateway CORS Bypasser (ป้องกันข้อมูลค้าง/แคช)
 // ----------------------------------------------------
-async function fetchWithSmartFallback(targetUrl) {
+async function fetchThaiWaterAPI(apiPath) {
     const timestamp = new Date().getTime();
-    const url = targetUrl.includes('?') ? `${targetUrl}&_t=${timestamp}` : `${targetUrl}?_t=${timestamp}`;
+    const targetUrl = `https://api-v3.thaiwater.net/api/v1/thaiwater30/public/${apiPath}?_ts=${timestamp}`;
 
-    const endpoints = [
-        `https://corsproxy.io/?${encodeURIComponent(url)}`,
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        `https://r.jina.ai/${url}`,
-        url
+    // รายการ Proxy ทางเลือกเพื่อความเสถียรสูงสุด
+    const gateways = [
+        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+        `https://thingproxy.freeboard.io/fetch/${targetUrl}`,
+        targetUrl
     ];
 
-    for (const endpoint of endpoints) {
+    for (const url of gateways) {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 7000);
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-            const response = await fetch(endpoint, {
+            const response = await fetch(url, {
                 signal: controller.signal,
-                cache: 'no-store',
-                headers: { 'Cache-Control': 'no-cache' }
+                cache: 'reload',
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache'
+                }
             });
 
             clearTimeout(timeoutId);
@@ -74,8 +78,8 @@ async function fetchWithSmartFallback(targetUrl) {
                     return JSON.parse(text);
                 }
             }
-        } catch (e) {
-            // ลองช่องทางถัดไปอัตโนมัติ
+        } catch (err) {
+            // ลองเกตเวย์ถัดไปอัตโนมัติ
         }
     }
     return null;
@@ -85,7 +89,7 @@ async function fetchWithSmartFallback(targetUrl) {
 // 1. ดึงข้อมูลเขื่อนลำตะคอง
 // ----------------------------------------------------
 async function fetchLiveDamData() {
-    const data = await fetchWithSmartFallback('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/dam_storage');
+    const data = await fetchThaiWaterAPI('dam_storage');
     
     if (data && data.dam_storage) {
         const item = data.dam_storage.find(d => {
@@ -109,7 +113,7 @@ async function fetchLiveDamData() {
 // 2. ดึงข้อมูลปริมาณฝนสะสม ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา)
 // ----------------------------------------------------
 async function fetchLiveRainData() {
-    const data = await fetchWithSmartFallback('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/rain_24h');
+    const data = await fetchThaiWaterAPI('rain_24h');
     const today = new Date();
     const dateFormatted = today.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -119,14 +123,14 @@ async function fetchLiveRainData() {
     if (data && data.data && Array.isArray(data.data)) {
         const stations = data.data;
 
-        // ค้นหาสถานีตามพิกัดและสังกัดกรมอุตุฯ
+        // ค้นหาพิกัดสถานีหนองไผ่ล้อม หรือ นครราชสีมา
         let target = stations.find(s => {
             const lat = parseFloat(s.station?.tele_station_lat || s.lat || 0);
             const long = parseFloat(s.station?.tele_station_long || s.long || 0);
             const agency = (s.agency?.agency_name?.th || s.agency?.agency_shortname?.th || '').toUpperCase();
             
             const isCoord = (Math.abs(lat - 14.9683) < 0.03) && (Math.abs(long - 102.08603) < 0.03);
-            const isTMD = agency.includes('กรมอุตุนิยมวิทยา') || agency.includes('TMD');
+            const isTMD = agency.includes('กรมอุตุนิยมวิทยา') || agency.includes('TMD') || agency.includes('อุตุนิยมวิทยา');
 
             return isCoord && isTMD;
         });
@@ -142,8 +146,11 @@ async function fetchLiveRainData() {
         if (target) {
             const r24 = parseFloat(target.rain_24h);
             const rToday = parseFloat(target.rain_today);
+            const r1h = parseFloat(target.rain_1h);
+
             if (!isNaN(r24)) rainVal = r24;
             else if (!isNaN(rToday)) rainVal = rToday;
+            else if (!isNaN(r1h)) rainVal = r1h;
 
             if (target.station?.tele_station_name?.th) {
                 stationTitle = `${target.station.tele_station_name.th} (กรมอุตุนิยมวิทยา)`;
@@ -159,10 +166,10 @@ async function fetchLiveRainData() {
 }
 
 // ----------------------------------------------------
-// 3. ดึงระดับน้ำ 4 สถานีหลัก
+// 3. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง
 // ----------------------------------------------------
 async function fetchLiveWaterLevels() {
-    const data = await fetchWithSmartFallback('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load');
+    const data = await fetchThaiWaterAPI('waterlevel_load');
     
     const stations = {
         M177: { code: 'M.177', name: 'บ้านลาดบัวขาว', level: 238.50, bank: 243.30, flow: 12.40 },
@@ -175,7 +182,7 @@ async function fetchLiveWaterLevels() {
         data.data.forEach(st => {
             const stName = st.station?.tele_station_name?.th || '';
             const stCode = st.station?.tele_station_old_code || '';
-            const levelVal = parseFloat(st.waterlevel_msl);
+            const levelVal = parseFloat(st.waterlevel_msl || st.waterlevel);
             const flowVal = parseFloat(st.discharge);
 
             const assign = (key) => {
