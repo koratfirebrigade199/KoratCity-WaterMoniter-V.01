@@ -2,15 +2,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. โหลดข้อมูลครั้งแรกทันที
     loadDashboardData();
 
-    // 2. ตั้ง Auto-Update ทุก 15 นาที
-    setInterval(loadDashboardData, 900000);
+    // 2. ตั้ง Auto-Update ทุก 1 ชั่วโมง (3,600,000 มิลลิวินาที) อย่างแม่นยำ
+    setInterval(loadDashboardData, 3600000);
 
-    // 3. ป้องกัน Browser Sleep / Tab Switching
+    // 3. ป้องกัน Browser Sleep: เมื่อผู้ใช้สลับกลับมาหน้าเว็บ ให้ดึงข้อมูลสดทันทีหากเกิน 1 ชม.
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
             const lastFetch = localStorage.getItem('last_sync_time');
             const now = new Date().getTime();
-            if (!lastFetch || (now - parseInt(lastFetch)) >= 900000) {
+            if (!lastFetch || (now - parseInt(lastFetch)) >= 3600000) {
                 loadDashboardData();
             }
         }
@@ -21,10 +21,11 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังดึงข้อมูลสด...");
+    updateStatusText("⏳ กำลังอัปเดตข้อมูลสดรายชั่วโมง...");
     const timestamp = new Date().getTime();
     localStorage.setItem('last_sync_time', timestamp.toString());
 
+    // ดึงข้อมูลสดพร้อมกันทุกส่วน
     const [damData, rainData, waterData] = await Promise.all([
         fetchLiveDamData(),
         fetchLiveRainData(),
@@ -37,11 +38,11 @@ async function loadDashboardData() {
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     const dateStr = now.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
     
-    updateStatusText(`อัปเดตล่าสุด: ${dateStr} เวลา ${timeStr} น.`);
+    updateStatusText(`อัปเดตล่าสุด: ${dateStr} เวลา ${timeStr} น. (Auto-Update ทุก 1 ชม.)`);
 }
 
 // ----------------------------------------------------
-// ระบบ Multi-Gateway CORS Bypasser
+// ระบบ Multi-Gateway CORS Bypasser (ป้องกันข้อมูลค้าง)
 // ----------------------------------------------------
 async function fetchThaiWaterAPI(apiPath) {
     const timestamp = new Date().getTime();
@@ -106,19 +107,25 @@ async function fetchLiveDamData() {
 }
 
 // ----------------------------------------------------
-// 2. ดึงข้อมูลปริมาณฝนสะสม ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา)
+// 2. ดึงข้อมูลปริมาณฝนสะสม ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา) แบบแม่นยำ
 // ----------------------------------------------------
 async function fetchLiveRainData() {
-    const data = await fetchThaiWaterAPI('rain_24h');
-    const today = new Date();
-    const dateFormatted = today.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+    // ลองดึงจาก rain_24h ก่อน หากไม่พบให้ดึงจาก tele_weather
+    let data = await fetchThaiWaterAPI('rain_24h');
+    let today = new Date();
+    let dateFormatted = today.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
 
     let rainVal = 0.0;
     let stationTitle = "สถานีนครราชสีมา ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา)";
 
+    if (!data || !data.data || !Array.isArray(data.data)) {
+        data = await fetchThaiWaterAPI('tele_weather');
+    }
+
     if (data && data.data && Array.isArray(data.data)) {
         const stations = data.data;
 
+        // ค้นหาเจาะจงพิกัดหนองไผ่ล้อม (14.9683, 102.08603) หรือชื่อสถานี
         let target = stations.find(s => {
             const lat = parseFloat(s.station?.tele_station_lat || s.lat || 0);
             const long = parseFloat(s.station?.tele_station_long || s.long || 0);
@@ -132,23 +139,24 @@ async function fetchLiveRainData() {
 
         if (!target) {
             target = stations.find(s => {
-                const name = s.station?.tele_station_name?.th || '';
+                const name = s.station?.tele_station_name?.th || s.tele_station_name?.th || '';
                 const subdistrict = s.geocode?.subdistrict_name?.th || '';
                 return name.includes('นครราชสีมา') || name.includes('หนองไผ่ล้อม') || subdistrict.includes('หนองไผ่ล้อม');
             });
         }
 
         if (target) {
-            const r24 = parseFloat(target.rain_24h);
+            const r24 = parseFloat(target.rain_24h || target.rain_24hours || target.rain);
             const rToday = parseFloat(target.rain_today);
             const r1h = parseFloat(target.rain_1h);
 
-            if (!isNaN(r24)) rainVal = r24;
-            else if (!isNaN(rToday)) rainVal = rToday;
-            else if (!isNaN(r1h)) rainVal = r1h;
+            if (!isNaN(r24) && r24 >= 0) rainVal = r24;
+            else if (!isNaN(rToday) && rToday >= 0) rainVal = rToday;
+            else if (!isNaN(r1h) && r1h >= 0) rainVal = r1h;
 
-            if (target.station?.tele_station_name?.th) {
-                stationTitle = `${target.station.tele_station_name.th} (กรมอุตุนิยมวิทยา)`;
+            const stName = target.station?.tele_station_name?.th || target.tele_station_name?.th;
+            if (stName) {
+                stationTitle = `${stName} (กรมอุตุนิยมวิทยา)`;
             }
         }
     }
