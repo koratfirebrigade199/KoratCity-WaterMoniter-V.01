@@ -1,11 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. โหลดข้อมูลครั้งแรกทันทีเมื่อเปิดเว็บ
+    // 1. โหลดข้อมูลครั้งแรกทันที
     loadDashboardData();
 
-    // 2. ตั้ง Auto-Update ทุกๆ 15 นาที (900,000 มิลลิวินาที) เพื่อให้ข้อมูลสดใหม่อยู่เสมอ
+    // 2. ตั้ง Auto-Update ทุก 15 นาที
     setInterval(loadDashboardData, 900000);
 
-    // 3. เมื่อสลับกลับมาเปิดแท็บนี้ ให้เช็กและรีเฟรชข้อมูลทันทีหากผ่านไปมากกว่า 15 นาที
+    // 3. ป้องกัน Browser Sleep / Tab Switching
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
             const lastFetch = localStorage.getItem('last_sync_time');
@@ -21,11 +21,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังดึงข้อมูลสดจากระบบ...");
+    updateStatusText("⏳ กำลังดึงข้อมูลสด...");
     const timestamp = new Date().getTime();
     localStorage.setItem('last_sync_time', timestamp.toString());
 
-    // ดึงข้อมูลพร้อมกันทุกส่วน
     const [damData, rainData, waterData] = await Promise.all([
         fetchLiveDamData(),
         fetchLiveRainData(),
@@ -42,13 +41,12 @@ async function loadDashboardData() {
 }
 
 // ----------------------------------------------------
-// ระบบ Multi-Gateway CORS Bypasser (ป้องกันข้อมูลค้าง/แคช)
+// ระบบ Multi-Gateway CORS Bypasser
 // ----------------------------------------------------
 async function fetchThaiWaterAPI(apiPath) {
     const timestamp = new Date().getTime();
     const targetUrl = `https://api-v3.thaiwater.net/api/v1/thaiwater30/public/${apiPath}?_ts=${timestamp}`;
 
-    // รายการ Proxy ทางเลือกเพื่อความเสถียรสูงสุด
     const gateways = [
         `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
         `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
@@ -78,9 +76,7 @@ async function fetchThaiWaterAPI(apiPath) {
                     return JSON.parse(text);
                 }
             }
-        } catch (err) {
-            // ลองเกตเวย์ถัดไปอัตโนมัติ
-        }
+        } catch (err) {}
     }
     return null;
 }
@@ -123,7 +119,6 @@ async function fetchLiveRainData() {
     if (data && data.data && Array.isArray(data.data)) {
         const stations = data.data;
 
-        // ค้นหาพิกัดสถานีหนองไผ่ล้อม หรือ นครราชสีมา
         let target = stations.find(s => {
             const lat = parseFloat(s.station?.tele_station_lat || s.lat || 0);
             const long = parseFloat(s.station?.tele_station_long || s.long || 0);
@@ -271,7 +266,7 @@ function updateDamUI(dam) {
     const percent = capacity > 0 ? ((volume / capacity) * 100).toFixed(2) : "0.00";
 
     if (document.getElementById('dam-capacity')) document.getElementById('dam-capacity').innerText = capacity.toFixed(2);
-    if (document.getElementById('dam-volume')) document.getElementById('dam-volume').innerHTML = `${volume.toFixed(2)} <span class="text-xs font-normal text-slate-400">ลบ.ม.</span>`;
+    if (document.getElementById('dam-volume')) document.getElementById('dam-volume').innerHTML = `${volume.toFixed(2)} <span class="text-[10px] sm:text-xs font-normal text-slate-400">ลบ.ม.</span>`;
     if (document.getElementById('dam-percent')) document.getElementById('dam-percent').innerText = `${percent}%`;
     if (document.getElementById('dam-inflow')) document.getElementById('dam-inflow').innerText = Number(dam.inflow || 0).toFixed(2);
     if (document.getElementById('dam-outflow')) document.getElementById('dam-outflow').innerText = Number(dam.outflow || 0).toFixed(2);
@@ -301,14 +296,14 @@ function updateWaterLevelUI(stations) {
         const diff = (st.bank - st.level).toFixed(2);
         const isOverflow = st.level >= st.bank;
         const badge = isOverflow 
-            ? `<span class="bg-red-50 text-red-700 border border-red-200 text-xs font-bold px-3 py-1 rounded-xl">ล้นตลิ่ง ${Math.abs(diff)} ม.</span>`
-            : `<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold px-3 py-1 rounded-xl">ต่ำกว่าตลิ่ง ${diff} ม.</span>`;
+            ? `<span class="bg-red-50 text-red-700 border border-red-200 text-[11px] sm:text-xs font-bold px-2.5 sm:px-3 py-1 rounded-xl">ล้นตลิ่ง ${Math.abs(diff)} ม.</span>`
+            : `<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] sm:text-xs font-bold px-2.5 sm:px-3 py-1 rounded-xl">ต่ำกว่าตลิ่ง ${diff} ม.</span>`;
 
         html += `
-            <div class="p-4 bg-slate-50/70 rounded-2xl border border-slate-200/80 hover:bg-white transition-all flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+            <div class="p-3.5 sm:p-4 bg-slate-50/70 rounded-2xl border border-slate-200/80 hover:bg-white transition-all flex flex-col sm:flex-row justify-between sm:items-center gap-2.5">
                 <div>
-                    <div class="font-bold text-sm text-slate-900">${st.code} - ${st.name}</div>
-                    <div class="text-xs text-slate-500 mt-1.5 flex flex-wrap gap-3 font-medium">
+                    <div class="font-bold text-xs sm:text-sm text-slate-900">${st.code} - ${st.name}</div>
+                    <div class="text-[11px] sm:text-xs text-slate-500 mt-1 flex flex-wrap gap-2.5 sm:gap-3 font-medium">
                         <span>ระดับน้ำ: <strong class="text-slate-800">${st.level.toFixed(2)}</strong> ม.รทก.</span>
                         <span>ตลิ่ง: <strong class="text-slate-800">${st.bank.toFixed(2)}</strong> ม.รทก.</span>
                         <span>อัตราการไหล: <strong class="text-sky-600">${st.flow !== undefined ? st.flow.toFixed(2) : '--'}</strong> cms</span>
@@ -364,15 +359,15 @@ function renderCommunityAlerts(waterLevels, rain) {
         const marginDisplay = (st.bank - st.level).toFixed(2);
 
         html += `
-            <div class="p-4 rounded-2xl border bg-slate-50/50 hover:bg-white transition-all shadow-2xs flex flex-col justify-between">
+            <div class="p-3.5 sm:p-4 rounded-2xl border bg-slate-50/50 hover:bg-white transition-all shadow-2xs flex flex-col justify-between">
                 <div>
-                    <div class="flex items-start justify-between gap-2 mb-1.5">
-                        <h3 class="font-bold text-slate-900 text-sm leading-snug">${item.name}</h3>
-                        <span class="text-[10px] px-2.5 py-1 rounded-lg border ${badgeBg} whitespace-nowrap">${badgeIcon}</span>
+                    <div class="flex items-start justify-between gap-2 mb-1">
+                        <h3 class="font-bold text-slate-900 text-xs sm:text-sm leading-snug">${item.name}</h3>
+                        <span class="text-[9px] sm:text-[10px] px-2 py-0.5 rounded-lg border ${badgeBg} whitespace-nowrap">${badgeIcon}</span>
                     </div>
-                    <p class="text-[11px] text-slate-500 mb-3 font-medium">${item.zone}</p>
+                    <p class="text-[10px] sm:text-[11px] text-slate-500 mb-2.5 font-medium">${item.zone}</p>
                     
-                    <div class="text-xs space-y-1 bg-white p-3 rounded-xl border border-slate-100 mb-3">
+                    <div class="text-[11px] sm:text-xs space-y-1 bg-white p-2.5 rounded-xl border border-slate-100 mb-2.5">
                         <div class="flex justify-between">
                             <span class="text-slate-500">ระดับน้ำเทียบตลิ่ง:</span>
                             <span class="font-bold ${st.level >= st.bank ? 'text-red-600' : 'text-slate-700'}">
@@ -381,7 +376,7 @@ function renderCommunityAlerts(waterLevels, rain) {
                         </div>
                     </div>
                 </div>
-                <div class="text-[11px] pt-2.5 border-t border-slate-200/60 font-semibold text-slate-600">
+                <div class="text-[10px] sm:text-[11px] pt-2 border-t border-slate-200/60 font-semibold text-slate-600">
                     💡 ${advice}
                 </div>
             </div>
@@ -407,7 +402,7 @@ function renderWaterLevelChart(stations) {
                     data: [stations.M177.level, stations.M192.level, stations.M191.level, stations.M164.level],
                     borderColor: '#0284c7',
                     backgroundColor: 'rgba(2, 132, 199, 0.1)',
-                    borderWidth: 3,
+                    borderWidth: 2.5,
                     fill: true,
                     tension: 0.35,
                     pointRadius: 4
@@ -427,11 +422,11 @@ function renderWaterLevelChart(stations) {
             responsive: true,
             maintainAspectRatio: false,
             plugins: { 
-                legend: { position: 'top', labels: { font: { family: 'Prompt', size: 12 } } }
+                legend: { position: 'top', labels: { font: { family: 'Prompt', size: 11 } } }
             },
             scales: {
-                x: { grid: { display: false } },
-                y: { grid: { color: 'rgba(226, 232, 240, 0.6)' } }
+                x: { grid: { display: false }, ticks: { font: { family: 'Prompt', size: 10 } } },
+                y: { grid: { color: 'rgba(226, 232, 240, 0.6)' }, ticks: { font: { family: 'Prompt', size: 10 } } }
             }
         }
     });
