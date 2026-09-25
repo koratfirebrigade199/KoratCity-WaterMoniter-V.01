@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. ตั้ง Auto-Update ทุก 1 ชั่วโมง (3,600,000 มิลลิวินาที)
     setInterval(loadDashboardData, 3600000);
 
-    // 3. ป้องกัน Browser Sleep: เมื่อสลับแท็บหรือเปิดหน้าจอกลับมา ให้เช็กเวลาแล้วรีเฟรชข้อมูลทันที
+    // 3. ป้องกันปัญหา Browser Sleep: เมื่อสลับแท็บกลับมาหน้าเว็บ ให้ดึงข้อมูลสดทันทีถ้าเกิน 1 ชม.
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
             const lastFetch = localStorage.getItem('last_rain_fetch_time');
@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังอัปเดตข้อมูลสด...");
+    updateStatusText("⏳ กำลังดึงข้อมูลสดล่าสุด...");
     localStorage.setItem('last_rain_fetch_time', new Date().getTime().toString());
 
     // ดึงข้อมูลสดพร้อมล้างแคช
@@ -41,7 +41,7 @@ async function loadDashboardData() {
 }
 
 // ----------------------------------------------------
-// ระบบ Multi-Proxy CORS Fallback พร้อมสั่ง Bypassing Cache
+// ระบบ Multi-Proxy CORS Fallback พร้อม Bypassing Cache
 // ----------------------------------------------------
 async function fetchWithMultiProxy(targetUrl) {
     const timestamp = new Date().getTime();
@@ -76,7 +76,7 @@ async function fetchWithMultiProxy(targetUrl) {
                 }
             }
         } catch (err) {
-            // ลอง Proxy ลำดับถัดไป
+            // ลอง Proxy ตัวถัดไป
         }
     }
     return null;
@@ -108,7 +108,7 @@ async function fetchLiveDamData() {
 }
 
 // ----------------------------------------------------
-// 2. ดึงข้อมูลปริมาณฝนสะสมแม่นยำ 100% 
+// 2. ดึงข้อมูลปริมาณฝนสะสมแม่นยำ 100%
 // สถานีนครราชสีมา ต.หนองไผ่ล้อม (พิกัด 14.9683, 102.08603) กรมอุตุนิยมวิทยา
 // ----------------------------------------------------
 async function fetchLiveRainData() {
@@ -116,13 +116,13 @@ async function fetchLiveRainData() {
     const today = new Date();
     const dateFormatted = today.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
 
-    let rainVal = null;
+    let rainVal = 0.0;
     let stationTitle = "สถานีนครราชสีมา ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา)";
 
     if (rawData && rawData.data && Array.isArray(rawData.data)) {
         const stations = rawData.data;
 
-        // ค้นหาเจาะจงด้วยพิกัด GPS ละติจูด 14.9683 / ลองจิจูด 102.08603 และ กรมอุตุฯ (TMD)
+        // เงื่อนไขที่ 1: ค้นหาเจาะจงพิกัด (14.9683, 102.08603) + สังกัดกรมอุตุนิยมวิทยา (TMD)
         let targetStation = stations.find(s => {
             const lat = parseFloat(s.station?.tele_station_lat || s.lat || 0);
             const long = parseFloat(s.station?.tele_station_long || s.long || 0);
@@ -134,28 +134,40 @@ async function fetchLiveRainData() {
             return isCoordMatch && isTMD;
         });
 
-        // หากหาด้วยพิกัดไม่เจอ ให้ค้นหาด้วยชื่อสถานี "นครราชสีมา" และสังกัด TMD
+        // เงื่อนไขที่ 2: หากหาด้วยพิกัดไม่เจอ ให้ค้นหาด้วยชื่อสถานี "นครราชสีมา" หรือ "หนองไผ่ล้อม" + TMD
         if (!targetStation) {
             targetStation = stations.find(s => {
                 const name = s.station?.tele_station_name?.th || '';
+                const subdistrict = s.geocode?.subdistrict_name?.th || '';
                 const agency = (s.agency?.agency_name?.th || s.agency?.agency_shortname?.th || '').toUpperCase();
-                return name.includes('นครราชสีมา') && (agency.includes('กรมอุตุนิยมวิทยา') || agency.includes('TMD'));
+
+                const isNameMatch = name.includes('นครราชสีมา') || name.includes('หนองไผ่ล้อม') || subdistrict.includes('หนองไผ่ล้อม');
+                const isTMD = agency.includes('กรมอุตุนิยมวิทยา') || agency.includes('TMD');
+
+                return isNameMatch && isTMD;
+            });
+        }
+
+        // เงื่อนไขที่ 3: ค้นหาสถานีฝนใน ต.หนองไผ่ล้อม / อ.เมืองนครราชสีมา
+        if (!targetStation) {
+            targetStation = stations.find(s => {
+                const name = s.station?.tele_station_name?.th || '';
+                const subdistrict = s.geocode?.subdistrict_name?.th || '';
+                return name.includes('หนองไผ่ล้อม') || subdistrict.includes('หนองไผ่ล้อม');
             });
         }
 
         if (targetStation) {
             const val24h = parseFloat(targetStation.rain_24h);
             const valToday = parseFloat(targetStation.rain_today);
-            
+
             if (!isNaN(val24h)) rainVal = val24h;
             else if (!isNaN(valToday)) rainVal = valToday;
-            
-            stationTitle = targetStation.station?.tele_station_name?.th || stationTitle;
-        }
-    }
 
-    if (rainVal === null) {
-        rainVal = 0.0;
+            stationTitle = targetStation.station?.tele_station_name?.th 
+                ? `${targetStation.station.tele_station_name.th} (กรมอุตุนิยมวิทยา)`
+                : stationTitle;
+        }
     }
 
     return {
