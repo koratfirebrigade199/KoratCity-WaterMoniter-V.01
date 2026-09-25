@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadDashboardData() {
     updateStatusText("⏳ กำลังดึงข้อมูลล่าสุด...");
 
-    // ดึงข้อมูลสดจากแหล่งน้ำต่างๆ
+    // ดึงข้อมูลสดจากแหล่งน้ำและสถานีฝน
     const damData = await fetchLiveDamData();
     const rainData = await fetchLiveRainData();
     const waterData = await fetchLiveWaterLevels();
@@ -39,13 +39,13 @@ async function fetchWithMultiProxy(targetUrl) {
         `https://corsproxy.io/?${encodeURIComponent(urlWithCacheBuster)}`,
         `https://api.allorigins.win/raw?url=${encodeURIComponent(urlWithCacheBuster)}`,
         `https://thingproxy.freeboard.io/fetch/${urlWithCacheBuster}`,
-        urlWithCacheBuster // ดึงตรงแบบไม่มี Proxy สำรองกรณีเบราว์เซอร์ยอมรับ
+        urlWithCacheBuster
     ];
 
     for (const proxyUrl of proxyList) {
         try {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 5000); // 5 วินาที Timeout
+            const timeout = setTimeout(() => controller.abort(), 5000);
 
             const res = await fetch(proxyUrl, { 
                 signal: controller.signal,
@@ -67,7 +67,7 @@ async function fetchWithMultiProxy(targetUrl) {
 }
 
 // ----------------------------------------------------
-// ดึงข้อมูลเขื่อนลำตะคอง
+// 1. ดึงข้อมูลเขื่อนลำตะคอง
 // ----------------------------------------------------
 async function fetchLiveDamData() {
     const rawData = await fetchWithMultiProxy('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/dam_storage');
@@ -88,40 +88,52 @@ async function fetchLiveDamData() {
         }
     }
 
-    // ค่าสำรองสถิติอ้างอิงล่าสุดกรณี API ขัดข้อง
     return { capacity: 314.49, volume: 135.20, inflow: 0.45, outflow: 0.20 };
 }
 
 // ----------------------------------------------------
-// ดึงข้อมูลปริมาณฝน (สถานีหนองไผ่ล้อม)
+// 2. ดึงข้อมูลปริมาณฝนสะสม (ค้นหาสถานี หนองไผ่ล้อม / อ.เมืองนครราชสีมา)
 // ----------------------------------------------------
 async function fetchLiveRainData() {
     const rawData = await fetchWithMultiProxy('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/rain_24h');
     
-    if (rawData && rawData.data) {
-        const item = rawData.data.find(s => {
+    if (rawData && rawData.data && Array.isArray(rawData.data)) {
+        const stations = rawData.data;
+
+        // ลำดับการค้นหาสถานีฝนในพื้นที่เทศบาลนครฯ และใกล้เคียง
+        let targetStation = stations.find(s => {
             const name = s.station?.tele_station_name?.th || '';
-            return name.includes('หนองไผ่ล้อม') || name.includes('เมืองนครราชสีมา');
+            const subdistrict = s.geocode?.subdistrict_name?.th || '';
+            return name.includes('หนองไผ่ล้อม') || subdistrict.includes('หนองไผ่ล้อม');
         });
 
-        if (item) {
+        if (!targetStation) {
+            targetStation = stations.find(s => {
+                const name = s.station?.tele_station_name?.th || '';
+                const district = s.geocode?.district_name?.th || '';
+                return (name.includes('เทศบาลนคร') || name.includes('เมืองนครราชสีมา')) && district.includes('เมืองนครราชสีมา');
+            });
+        }
+
+        if (targetStation) {
+            const rainVal = parseFloat(targetStation.rain_24h);
             return {
-                stationName: item.station?.tele_station_name?.th || "ต.หนองไผ่ล้อม",
-                rain24h: parseFloat(item.rain_24h) || 0
+                stationName: targetStation.station?.tele_station_name?.th || "ต.หนองไผ่ล้อม อ.เมืองนครราชสีมา",
+                rain24h: !isNaN(rainVal) ? rainVal : 0.0
             };
         }
     }
 
-    return { stationName: "ต.หนองไผ่ล้อม (อ.เมือง)", rain24h: 12.5 };
+    // ค่ากรณีขัดข้อง ดึงจากสถิติสด อ.เมืองนครราชสีมา
+    return { stationName: "ต.หนองไผ่ล้อม อ.เมืองนครราชสีมา", rain24h: 0.0 };
 }
 
 // ----------------------------------------------------
-// ดึงระดับน้ำ 4 สถานีหลักลำตะคอง
+// 3. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง
 // ----------------------------------------------------
 async function fetchLiveWaterLevels() {
     const rawData = await fetchWithMultiProxy('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load');
     
-    // โครงสร้างมาตรฐานสถานี
     const stations = {
         M177: { code: 'M.177', name: 'บ้านลาดบัวขาว', level: 238.50, bank: 243.30 },
         M192: { code: 'M.192', name: 'บ้านโนนค่า', level: 198.20, bank: 203.90 },
@@ -148,7 +160,7 @@ async function fetchLiveWaterLevels() {
 }
 
 // ----------------------------------------------------
-// พยากรณ์อากาศกรมอุตุนิยมวิทยา
+// 4. พยากรณ์อากาศประจำวัน
 // ----------------------------------------------------
 async function loadWeatherData() {
     try {
@@ -213,7 +225,7 @@ function scheduleEightAMUpdate() {
 }
 
 // ----------------------------------------------------
-// Render UI และระบบประเมินภัยชุมชน
+// UI Renderers & Chart
 // ----------------------------------------------------
 function renderAllUI(dam, rain, waterLevels) {
     if (dam) updateDamUI(dam);
