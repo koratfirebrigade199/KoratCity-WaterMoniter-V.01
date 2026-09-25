@@ -29,7 +29,7 @@ async function loadDashboardData() {
 }
 
 // ----------------------------------------------------
-// ระบบ Multi-Proxy CORS Fallback (แก้ปัญหาดึงข้อมูลไม่มา)
+// ระบบ Multi-Proxy CORS Fallback
 // ----------------------------------------------------
 async function fetchWithMultiProxy(targetUrl) {
     const timestamp = new Date().getTime();
@@ -92,7 +92,7 @@ async function fetchLiveDamData() {
 }
 
 // ----------------------------------------------------
-// 2. ดึงข้อมูลปริมาณฝนสะสม (ค้นหาสถานี หนองไผ่ล้อม / อ.เมืองนครราชสีมา)
+// 2. ดึงข้อมูลปริมาณฝนสะสม
 // ----------------------------------------------------
 async function fetchLiveRainData() {
     const rawData = await fetchWithMultiProxy('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/rain_24h');
@@ -100,7 +100,6 @@ async function fetchLiveRainData() {
     if (rawData && rawData.data && Array.isArray(rawData.data)) {
         const stations = rawData.data;
 
-        // ลำดับการค้นหาสถานีฝนในพื้นที่เทศบาลนครฯ และใกล้เคียง
         let targetStation = stations.find(s => {
             const name = s.station?.tele_station_name?.th || '';
             const subdistrict = s.geocode?.subdistrict_name?.th || '';
@@ -124,21 +123,21 @@ async function fetchLiveRainData() {
         }
     }
 
-    // ค่ากรณีขัดข้อง ดึงจากสถิติสด อ.เมืองนครราชสีมา
     return { stationName: "ต.หนองไผ่ล้อม อ.เมืองนครราชสีมา", rain24h: 0.0 };
 }
 
 // ----------------------------------------------------
-// 3. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง
+// 3. ดึงระดับน้ำ และ อัตราการไหล (Discharge) 4 สถานีหลักลำตะคอง
 // ----------------------------------------------------
 async function fetchLiveWaterLevels() {
     const rawData = await fetchWithMultiProxy('https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load');
     
+    // โครงสร้างค่าเริ่มต้น
     const stations = {
-        M177: { code: 'M.177', name: 'บ้านลาดบัวขาว', level: 238.50, bank: 243.30 },
-        M192: { code: 'M.192', name: 'บ้านโนนค่า', level: 198.20, bank: 203.90 },
-        M191: { code: 'M.191', name: 'บ้านโคกกรวด', level: 191.10, bank: 195.30 },
-        M164: { code: 'M.164', name: 'สะพาน VIP', level: 174.80, bank: 177.60 }
+        M177: { code: 'M.177', name: 'บ้านลาดบัวขาว', level: 238.50, bank: 243.30, flow: 12.40 },
+        M192: { code: 'M.192', name: 'บ้านโนนค่า', level: 198.20, bank: 203.90, flow: 8.50 },
+        M191: { code: 'M.191', name: 'บ้านโคกกรวด', level: 191.10, bank: 195.30, flow: 6.20 },
+        M164: { code: 'M.164', name: 'สะพาน VIP', level: 174.80, bank: 177.60, flow: 4.10 }
     };
 
     if (rawData && rawData.data) {
@@ -146,13 +145,17 @@ async function fetchLiveWaterLevels() {
             const stName = st.station?.tele_station_name?.th || '';
             const stCode = st.station?.tele_station_old_code || '';
             const levelVal = parseFloat(st.waterlevel_msl);
+            const flowVal = parseFloat(st.discharge); // ดึงค่าอัตราการไหล (cms)
 
-            if (!isNaN(levelVal) && levelVal > 0) {
-                if (stName.includes('M.177') || stCode === 'M177') stations.M177.level = levelVal;
-                if (stName.includes('M.192') || stCode === 'M192') stations.M192.level = levelVal;
-                if (stName.includes('M.191') || stCode === 'M191') stations.M191.level = levelVal;
-                if (stName.includes('M.164') || stCode === 'M164') stations.M164.level = levelVal;
-            }
+            const assignData = (key) => {
+                if (!isNaN(levelVal) && levelVal > 0) stations[key].level = levelVal;
+                if (!isNaN(flowVal) && flowVal >= 0) stations[key].flow = flowVal;
+            };
+
+            if (stName.includes('M.177') || stCode === 'M177') assignData('M177');
+            if (stName.includes('M.192') || stCode === 'M192') assignData('M192');
+            if (stName.includes('M.191') || stCode === 'M191') assignData('M191');
+            if (stName.includes('M.164') || stCode === 'M164') assignData('M164');
         });
     }
 
@@ -279,7 +282,10 @@ function updateWaterLevelUI(stations) {
             <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                 <div>
                     <div class="font-bold text-sm text-slate-800">${st.code} - ${st.name}</div>
-                    <div class="text-xs text-slate-500 mt-0.5">ระดับน้ำ: <strong>${st.level.toFixed(2)}</strong> ม.รทก. | ระดับตลิ่ง: <strong>${st.bank.toFixed(2)}</strong> ม.รทก.</div>
+                    <div class="text-xs text-slate-500 mt-1 space-y-0.5">
+                        <p>ระดับน้ำ: <strong class="text-slate-700">${st.level.toFixed(2)}</strong> ม.รทก. | ตลิ่ง: <strong class="text-slate-700">${st.bank.toFixed(2)}</strong> ม.รทก.</p>
+                        <p>อัตราการไหล: <strong class="text-sky-700">${st.flow !== undefined ? st.flow.toFixed(2) : '--'}</strong> ลบ.ม./วินาที (cms)</p>
+                    </div>
                 </div>
                 <div>${badge}</div>
             </div>
@@ -292,8 +298,8 @@ function renderCommunityAlerts(waterLevels, rain) {
     const alertGrid = document.getElementById('community-alert-grid');
     if (!alertGrid) return;
 
-    const stM191 = waterLevels.M191 || { level: 191.10, bank: 195.30 };
-    const stM164 = waterLevels.M164 || { level: 174.80, bank: 177.60 };
+    const stM191 = waterLevels.M191 || { level: 191.10, bank: 195.30, flow: 6.20 };
+    const stM164 = waterLevels.M164 || { level: 174.80, bank: 177.60, flow: 4.10 };
     const rainAmount = rain ? (rain.rain24h || 0) : 0;
 
     const communities = [
@@ -355,7 +361,7 @@ function renderCommunityAlerts(waterLevels, rain) {
                         </div>
                         <div class="flex justify-between text-[11px]">
                             <span class="text-slate-400">สถานีอ้างอิง:</span>
-                            <span class="text-slate-600">${st.code} (${st.level.toFixed(2)} ม.รทก.)</span>
+                            <span class="text-slate-600">${st.code} (${st.level.toFixed(2)} ม.รทก. | ${st.flow !== undefined ? st.flow.toFixed(1) : '--'} cms)</span>
                         </div>
                     </div>
                 </div>
@@ -404,7 +410,18 @@ function renderWaterLevelChart(stations) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { position: 'top' } }
+            plugins: { 
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        afterBody: function(context) {
+                            const flows = [stations.M177.flow, stations.M192.flow, stations.M191.flow, stations.M164.flow];
+                            const flow = flows[context[0].dataIndex];
+                            return `อัตราการไหล: ${flow !== undefined ? flow.toFixed(2) : '--'} ลบ.ม./วินาที`;
+                        }
+                    }
+                }
+            }
         }
     });
 }
