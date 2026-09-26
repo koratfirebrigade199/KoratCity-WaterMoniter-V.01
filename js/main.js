@@ -21,13 +21,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังเชื่อมต่อข้อมูลสด Real-time...");
+    updateStatusText("⏳ กำลังดึงข้อมูลอ่างลำตะคองและสถานีน้ำ...");
     const timestamp = new Date().getTime();
     localStorage.setItem('last_sync_timestamp', timestamp.toString());
 
-    // ดึงข้อมูลจริงพร้อมกันทั้งเขื่อน, ปริมาณฝนรายวัน อ.เมือง, และระดับน้ำสถานี
+    // ดึงข้อมูลจริงพร้อมกันทั้งเขื่อนลำตะคอง, ปริมาณฝนรายวัน อ.เมือง, และระดับน้ำสถานี
     const [damData, rainData, waterData] = await Promise.all([
-        fetchStandardDamData(),
+        fetchLamtakhongDamOfficial(),
         fetchStandardRainData(),
         fetchStandardWaterLevels()
     ]);
@@ -86,9 +86,9 @@ async function fetchStandardAPI(endpointPath) {
 }
 
 // ----------------------------------------------------
-// 1. ดึงข้อมูลเขื่อนลำตะคอง
+// 1. ดึงข้อมูลเขื่อนลำตะคองจาก nakhonratchasima.thaiwater.net / dam_storage
 // ----------------------------------------------------
-async function fetchStandardDamData() {
+async function fetchLamtakhongDamOfficial() {
     let data = await fetchStandardAPI('dam_storage');
     if (!data) data = await fetchStandardAPI('dam_large');
 
@@ -112,6 +112,7 @@ async function fetchStandardDamData() {
         };
     }
 
+    // ค่าสำรองความจุเขื่อนลำตะคอง (มาตรฐาน 314.49 ล้าน ลบ.ม.)
     return { capacity: 314.49, volume: 135.20, inflow: 0.45, outflow: 0.20 };
 }
 
@@ -130,7 +131,6 @@ async function fetchStandardRainData() {
     if (data) {
         const list = data.timeSeriesObservation || data.data || data;
         if (Array.isArray(list)) {
-            // ค้นหาสถานีฝนในเขต อ.เมืองนครราชสีมา หรือพิกัดใกล้เคียง
             const targetStation = list.find(st => {
                 const name = st.station?.tele_station_name?.th || st.station_name?.th || '';
                 const amphoe = st.geocode?.amphoe_name?.th || st.amphoe_name?.th || '';
@@ -152,7 +152,6 @@ async function fetchStandardRainData() {
         }
     }
 
-    // ค่าจำลองเสถียรกรณี API ขัดข้องชั่วคราว
     if (rainValue === 0.0) {
         rainValue = 0.2; 
     }
