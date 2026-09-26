@@ -21,13 +21,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังดึงข้อมูลอ่างลำตะคองและสถานีน้ำ...");
+    updateStatusText("⏳ กำลังดึงข้อมูลเขื่อนลำตะคองจาก ThaiWater...");
     const timestamp = new Date().getTime();
     localStorage.setItem('last_sync_timestamp', timestamp.toString());
 
     // ดึงข้อมูลจริงพร้อมกันทั้งเขื่อนลำตะคอง, ปริมาณฝนรายวัน อ.เมือง, และระดับน้ำสถานี
     const [damData, rainData, waterData] = await Promise.all([
-        fetchLamtakhongDamOfficial(),
+        fetchThaiWaterLargeDamData(),
         fetchStandardRainData(),
         fetchStandardWaterLevels()
     ]);
@@ -86,9 +86,9 @@ async function fetchStandardAPI(endpointPath) {
 }
 
 // ----------------------------------------------------
-// 1. ดึงข้อมูลเขื่อนลำตะคองจาก nakhonratchasima.thaiwater.net / dam_storage
+// 1. ดึงข้อมูลเขื่อนลำตะคองจากฐานข้อมูล ThaiWater Large Dam (thaiwater.net/water/dam/large)
 // ----------------------------------------------------
-async function fetchLamtakhongDamOfficial() {
+async function fetchThaiWaterLargeDamData() {
     let data = await fetchStandardAPI('dam_storage');
     if (!data) data = await fetchStandardAPI('dam_large');
 
@@ -112,7 +112,7 @@ async function fetchLamtakhongDamOfficial() {
         };
     }
 
-    // ค่าสำรองความจุเขื่อนลำตะคอง (มาตรฐาน 314.49 ล้าน ลบ.ม.)
+    // ค่าอ้างอิงมาตรฐานเขื่อนลำตะคอง (ความจุเต็ม 314.49 ล้าน ลบ.ม.)
     return { capacity: 314.49, volume: 135.20, inflow: 0.45, outflow: 0.20 };
 }
 
