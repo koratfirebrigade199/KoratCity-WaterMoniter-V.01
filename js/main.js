@@ -1,11 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. โหลดข้อมูลครั้งแรกทันที
+    // 1. โหลดข้อมูลครั้งแรกทันทีเมื่อเปิดหน้าเว็บ
     loadDashboardData();
 
     // 2. ตั้ง Auto-Update ทุก 1 ชั่วโมง (3,600,000 มิลลิวินาที) อย่างแม่นยำ
     setInterval(loadDashboardData, 3600000);
 
-    // 3. ป้องกัน Browser Sleep: เมื่อผู้ใช้สลับกลับมาหน้าเว็บ ให้ดึงข้อมูลสดทันทีหากเกิน 1 ชม.
+    // 3. ป้องกัน Browser Sleep: เมื่อสลับกลับมาหน้าเว็บ ให้ดึงข้อมูลสดทันทีหากเกิน 1 ชม.
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
             const lastFetch = localStorage.getItem('last_sync_time');
@@ -21,11 +21,11 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังอัปเดตข้อมูลสดรายชั่วโมง...");
+    updateStatusText("⏳ กำลังดึงข้อมูลสดตามมาตรฐาน ThaiWater...");
     const timestamp = new Date().getTime();
     localStorage.setItem('last_sync_time', timestamp.toString());
 
-    // ดึงข้อมูลสดพร้อมกันทุกส่วน
+    // ดึงข้อมูลพร้อมกันทุกส่วนตามมาตรฐาน API
     const [damData, rainData, waterData] = await Promise.all([
         fetchLiveDamData(),
         fetchLiveRainData(),
@@ -38,46 +38,52 @@ async function loadDashboardData() {
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     const dateStr = now.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
     
-    updateStatusText(`อัปเดตล่าสุด: ${dateStr} เวลา ${timeStr} น. (Auto-Update ทุก 1 ชม.)`);
+    updateStatusText(`อัปเดตล่าสุด: ${dateStr} เวลา ${timeStr} น. (ระบบอัปเดตอัตโนมัติทุก 1 ชม.)`);
 }
 
 // ----------------------------------------------------
-// ระบบ Multi-Gateway CORS Bypasser (ป้องกันข้อมูลค้าง)
+// ระบบ Multi-Gateway CORS Bypasser สำหรับ ThaiWater Standard API
 // ----------------------------------------------------
-async function fetchThaiWaterAPI(apiPath) {
+async function fetchStandardThaiWaterAPI(apiPath) {
     const timestamp = new Date().getTime();
-    const targetUrl = `https://api-v3.thaiwater.net/api/v1/thaiwater30/public/${apiPath}?_ts=${timestamp}`;
-
-    const gateways = [
-        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-        `https://thingproxy.freeboard.io/fetch/${targetUrl}`,
-        targetUrl
+    // รองรับทั้ง Endpoint มาตรฐานและ Public API สำรอง
+    const endpoints = [
+        `https://api-v3.thaiwater.net/api/v1/thaiwater30/public/${apiPath}?_ts=${timestamp}`,
+        `https://standard.thaiwater.net/api/v1/${apiPath}?_ts=${timestamp}`
     ];
 
-    for (const url of gateways) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 6000);
+    for (const targetUrl of endpoints) {
+        const gateways = [
+            `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+            `https://thingproxy.freeboard.io/fetch/${targetUrl}`,
+            targetUrl
+        ];
 
-            const response = await fetch(url, {
-                signal: controller.signal,
-                cache: 'reload',
-                headers: {
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache'
+        for (const url of gateways) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+                const response = await fetch(url, {
+                    signal: controller.signal,
+                    cache: 'reload',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache'
+                    }
+                });
+
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const text = await response.text();
+                    if (text && (text.trim().startsWith('{') || text.trim().startsWith('['))) {
+                        return JSON.parse(text);
+                    }
                 }
-            });
-
-            clearTimeout(timeoutId);
-
-            if (response.ok) {
-                const text = await response.text();
-                if (text && (text.trim().startsWith('{') || text.trim().startsWith('['))) {
-                    return JSON.parse(text);
-                }
-            }
-        } catch (err) {}
+            } catch (err) {}
+        }
     }
     return null;
 }
@@ -86,7 +92,7 @@ async function fetchThaiWaterAPI(apiPath) {
 // 1. ดึงข้อมูลเขื่อนลำตะคอง
 // ----------------------------------------------------
 async function fetchLiveDamData() {
-    const data = await fetchThaiWaterAPI('dam_storage');
+    const data = await fetchStandardThaiWaterAPI('dam_storage');
     
     if (data && data.dam_storage) {
         const item = data.dam_storage.find(d => {
@@ -107,31 +113,31 @@ async function fetchLiveDamData() {
 }
 
 // ----------------------------------------------------
-// 2. ดึงข้อมูลปริมาณฝนสะสม ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา) แบบแม่นยำ
+// 2. ดึงข้อมูลปริมาณฝนสะสมรายวัน (ตามมาตรฐาน API /Rainfall)
 // ----------------------------------------------------
 async function fetchLiveRainData() {
-    // ลองดึงจาก rain_24h ก่อน หากไม่พบให้ดึงจาก tele_weather
-    let data = await fetchThaiWaterAPI('rain_24h');
+    let data = await fetchStandardThaiWaterAPI('rain_24h');
     let today = new Date();
     let dateFormatted = today.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
 
     let rainVal = 0.0;
     let stationTitle = "สถานีนครราชสีมา ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา)";
 
+    // Fallback หากชุด rain_24h ขัดข้อง ให้ดึงชุด tele_weather ตามมาตรฐาน
     if (!data || !data.data || !Array.isArray(data.data)) {
-        data = await fetchThaiWaterAPI('tele_weather');
+        data = await fetchStandardThaiWaterAPI('tele_weather');
     }
 
     if (data && data.data && Array.isArray(data.data)) {
         const stations = data.data;
 
-        // ค้นหาเจาะจงพิกัดหนองไผ่ล้อม (14.9683, 102.08603) หรือชื่อสถานี
+        // ค้นหาสถานีตามพิกัดหนองไผ่ล้อม หรือรหัสสถานีในจังหวัดนครราชสีมา (Province Code: 30)
         let target = stations.find(s => {
             const lat = parseFloat(s.station?.tele_station_lat || s.lat || 0);
             const long = parseFloat(s.station?.tele_station_long || s.long || 0);
             const agency = (s.agency?.agency_name?.th || s.agency?.agency_shortname?.th || '').toUpperCase();
             
-            const isCoord = (Math.abs(lat - 14.9683) < 0.03) && (Math.abs(long - 102.08603) < 0.03);
+            const isCoord = (Math.abs(lat - 14.9683) < 0.04) && (Math.abs(long - 102.08603) < 0.04);
             const isTMD = agency.includes('กรมอุตุนิยมวิทยา') || agency.includes('TMD') || agency.includes('อุตุนิยมวิทยา');
 
             return isCoord && isTMD;
@@ -169,11 +175,15 @@ async function fetchLiveRainData() {
 }
 
 // ----------------------------------------------------
-// 3. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง
+// 3. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง (ตามมาตรฐาน WaterLevel API)
 // ----------------------------------------------------
 async function fetchLiveWaterLevels() {
-    const data = await fetchThaiWaterAPI('waterlevel_load');
+    let data = await fetchStandardThaiWaterAPI('waterlevel_load');
     
+    if (!data || !data.data) {
+        data = await fetchStandardThaiWaterAPI('water_level');
+    }
+
     const stations = {
         M177: { code: 'M.177', name: 'บ้านลาดบัวขาว', level: 238.50, bank: 243.30, flow: 12.40 },
         M192: { code: 'M.192', name: 'บ้านโนนค่า', level: 198.20, bank: 203.90, flow: 8.50 },
@@ -183,10 +193,10 @@ async function fetchLiveWaterLevels() {
 
     if (data && data.data) {
         data.data.forEach(st => {
-            const stName = st.station?.tele_station_name?.th || '';
-            const stCode = st.station?.tele_station_old_code || '';
-            const levelVal = parseFloat(st.waterlevel_msl || st.waterlevel);
-            const flowVal = parseFloat(st.discharge);
+            const stName = st.station?.tele_station_name?.th || st.station_name?.th || '';
+            const stCode = st.station?.tele_station_old_code || st.station_old_code || '';
+            const levelVal = parseFloat(st.waterlevel_msl || st.waterlevel || st.value);
+            const flowVal = parseFloat(st.discharge || st.flow);
 
             const assign = (key) => {
                 if (!isNaN(levelVal) && levelVal > 0) stations[key].level = levelVal;
@@ -256,7 +266,7 @@ function scheduleEightAMUpdate() {
 }
 
 // ----------------------------------------------------
-// UI Renderers
+// UI Renderers (คงความทันสมัยและ Responsive สมบูรณ์)
 // ----------------------------------------------------
 function renderAllUI(dam, rain, waterLevels) {
     if (dam) updateDamUI(dam);
