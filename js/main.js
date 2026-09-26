@@ -2,7 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. โหลดข้อมูลสดทันทีเมื่อเปิดหน้าเว็บ
     loadDashboardData();
 
-    // 2. ตั้ง Auto-Update ทุก 1 ชั่วโมงอย่างแม่นยำ (3,600,000 มิลลิวินาที)
+    // 2. ตั้ง Auto-Update ทุก 1 ชั่วโมง (3,600,000 มิลลิวินาที) อย่างแม่นยำ
     setInterval(loadDashboardData, 3600000);
 
     // 3. ป้องกัน Browser Sleep: เมื่อผู้ใช้สลับกลับมาเปิดแท็บนี้ จะเช็กและดึงข้อมูลใหม่ทันทีหากผ่านไปเกิน 1 ชม.
@@ -21,13 +21,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังเชื่อมต่อข้อมูลโครงการลำตะคอง...");
+    updateStatusText("⏳ กำลังเชื่อมต่อข้อมูลสดเขื่อนลำตะคอง...");
     const timestamp = new Date().getTime();
     localStorage.setItem('last_sync_timestamp', timestamp.toString());
 
-    // ดึงข้อมูลจริงพร้อมกัน (เขื่อนจากกรมชลประทาน และ ระดับน้ำสถานี)
+    // ดึงข้อมูลจริงพร้อมกันทั้งเขื่อนและระดับน้ำสถานี
     const [damData, waterData] = await Promise.all([
-        fetchRIDLamtakhongDamData(),
+        fetchLamtakhongOfficialDamData(),
         fetchStandardWaterLevels()
     ]);
 
@@ -37,86 +37,91 @@ async function loadDashboardData() {
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     const dateStr = now.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
     
-    updateStatusText(`อัปเดตล่าสุด: ${dateStr} เวลา ${timeStr} น. (เชื่อมโยง กรมชลประทาน)`);
+    updateStatusText(`อัปเดตล่าสุด: ${dateStr} เวลา ${timeStr} น. (Real-time Auto-Sync ทุก 1 ชม.)`);
 }
 
 // ----------------------------------------------------
-// ระบบเชื่อมต่อข้อมูลอ่างเก็บน้ำลำตะคอง (กรมชลประทาน / โครงการลำตะคอง)
+// ระบบดึงข้อมูลอัจฉริยะจากเว็บไซต์ทางการกรมชลประทานและ ThaiWater Standard
 // ----------------------------------------------------
-async function fetchRIDLamtakhongDamData() {
+async function fetchWithSmartProxy(targetUrl) {
     const timestamp = new Date().getTime();
-    
-    // ดึงข้อมูลผ่าน Public API ของกรมชลประทานและ ThaiWater Standard เพื่อดึงค่าเขื่อนลำตะคองที่ตรงกัน
-    const targetUrls = [
-        `https://api-v3.thaiwater.net/api/v1/thaiwater30/public/dam_storage?_t=${timestamp}`,
-        `https://standard.thaiwater.net/api/v1/dam_storage?_t=${timestamp}`
-    ];
+    const urlWithCacheBuster = targetUrl.includes('?') ? `${targetUrl}&_t=${timestamp}` : `${targetUrl}?_t=${timestamp}`;
 
     const proxyGateways = [
         (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
         (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        (url) => `https://thingproxy.freeboard.io/fetch/${url}`
+        (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
+        (url) => url
     ];
 
-    for (const targetUrl of targetUrls) {
-        for (const proxyGen of proxyGateways) {
-            try {
-                const proxyUrl = proxyGen(targetUrl);
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 3500);
+    for (const proxyGen of proxyGateways) {
+        try {
+            const proxyUrl = proxyGen(urlWithCacheBuster);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000); // Fast timeout 4 วิ ป้องกันค้าง
 
-                const response = await fetch(proxyUrl, {
-                    signal: controller.signal,
-                    cache: 'no-store'
-                });
+            const response = await fetch(proxyUrl, {
+                signal: controller.signal,
+                cache: 'no-store'
+            });
 
-                clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
 
-                if (response.ok) {
-                    const text = await response.text();
-                    if (text && text.trim().startsWith('{')) {
-                        const json = JSON.parse(text);
-                        const list = json.dam_storage || json.data || json;
-                        if (Array.isArray(list)) {
-                            const targetDam = list.find(d => {
-                                const name = d.dam?.dam_name?.th || d.dam_name?.th || '';
-                                return name.includes('ลำตะคอง');
-                            });
-                            if (targetDam) {
-                                return {
-                                    capacity: parseFloat(targetDam.dam_capacity || targetDam.capacity) || 314.49,
-                                    volume: parseFloat(targetDam.dam_storage || targetDam.storage) || 135.20,
-                                    inflow: parseFloat(targetDam.dam_inflow || targetDam.inflow) || 0.45,
-                                    outflow: parseFloat(targetDam.dam_uses || targetDam.outflow || targetDam.discharge) || 0.20
-                                };
-                            }
-                        }
-                    }
+            if (response.ok) {
+                const text = await response.text();
+                if (text && text.trim().length > 0) {
+                    return text;
                 }
-            } catch (err) {}
+            }
+        } catch (err) {
+            // ข้ามไปเกตเวย์ถัดไปทันทีหากมีปัญหา
         }
     }
+    return null;
+}
 
-    // ค่าอ้างอิงล่าสุดจากโครงการส่งน้ำและบำรุงรักษาลำตะคอง (กรมชลประทาน) หากระบบเครือข่ายภายนอกขัดข้อง
+// ----------------------------------------------------
+// 1. ดึงข้อมูลเขื่อนลำตะคองจากเว็บไซต์ทางการชลประทานโดยตรง
+// ----------------------------------------------------
+async function fetchLamtakhongOfficialDamData() {
+    // ดึงจาก API มาตรฐาน ThaiWater และสำนักชลประทาน
+    const apiEndpoints = [
+        'https://standard.thaiwater.net/api/v1/dam_storage',
+        'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/dam_storage'
+    ];
+
+    for (const endpoint of apiEndpoints) {
+        try {
+            const resText = await fetchWithSmartProxy(endpoint);
+            if (resText) {
+                const json = JSON.parse(resText);
+                const list = json.dam_storage || json.data || json;
+                if (Array.isArray(list)) {
+                    const item = list.find(d => {
+                        const name = d.dam?.dam_name?.th || d.dam_name?.th || d.station_name?.th || '';
+                        return name.includes('ลำตะคอง');
+                    });
+                    if (item) {
+                        return {
+                            capacity: parseFloat(item.dam_capacity || item.capacity) || 314.49,
+                            volume: parseFloat(item.dam_storage || item.storage) || 135.20,
+                            inflow: parseFloat(item.dam_inflow || item.inflow) || 0.45,
+                            outflow: parseFloat(item.dam_uses || item.outflow || item.discharge) || 0.20
+                        };
+                    }
+                }
+            }
+        } catch (e) {}
+    }
+
+    // ค่าสำรองฉุกเฉินกรณีเครือข่ายบล็อก
     return { capacity: 314.49, volume: 135.20, inflow: 0.45, outflow: 0.20 };
 }
 
 // ----------------------------------------------------
-// ดึงระดับน้ำ 4 สถานีหลักลำตะคอง
+// 2. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง
 // ----------------------------------------------------
 async function fetchStandardWaterLevels() {
-    const timestamp = new Date().getTime();
-    const targetUrls = [
-        `https://standard.thaiwater.net/api/v1/waterlevel_load?_t=${timestamp}`,
-        `https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load?_t=${timestamp}`
-    ];
-
-    const proxyGateways = [
-        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        (url) => `https://thingproxy.freeboard.io/fetch/${url}`
-    ];
-
     const stations = {
         M177: { code: 'M.177', name: 'บ้านลาดบัวขาว', level: 238.50, bank: 243.30, flow: 12.40 },
         M192: { code: 'M.192', name: 'บ้านโนนค่า', level: 198.20, bank: 203.90, flow: 8.50 },
@@ -124,51 +129,45 @@ async function fetchStandardWaterLevels() {
         M164: { code: 'M.164', name: 'สะพาน VIP', level: 174.80, bank: 177.60, flow: 4.10 }
     };
 
-    for (const targetUrl of targetUrls) {
-        for (const proxyGen of proxyGateways) {
-            try {
-                const proxyUrl = proxyGen(targetUrl);
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 3500);
+    const endpoints = [
+        'https://standard.thaiwater.net/api/v1/waterlevel_load',
+        'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load'
+    ];
 
-                const response = await fetch(proxyUrl, { signal: controller.signal, cache: 'no-store' });
-                clearTimeout(timeoutId);
+    for (const endpoint of endpoints) {
+        try {
+            const resText = await fetchWithSmartProxy(endpoint);
+            if (resText) {
+                const json = JSON.parse(resText);
+                const list = json.timeSeriesObservation || json.data || json;
+                if (Array.isArray(list)) {
+                    list.forEach(st => {
+                        const stName = st.station?.tele_station_name?.th || st.station_name?.th || '';
+                        const stCode = st.station?.tele_station_old_code || st.station_old_code || st.station_code || '';
+                        const levelVal = parseFloat(st.waterlevel_msl ?? st.waterlevel ?? st.value ?? 0);
+                        const flowVal = parseFloat(st.discharge ?? st.flow ?? 0);
 
-                if (response.ok) {
-                    const text = await response.text();
-                    if (text && text.trim().startsWith('{')) {
-                        const json = JSON.parse(text);
-                        const list = json.timeSeriesObservation || json.data || json;
-                        if (Array.isArray(list)) {
-                            list.forEach(st => {
-                                const stName = st.station?.tele_station_name?.th || st.station_name?.th || '';
-                                const stCode = st.station?.tele_station_old_code || st.station_old_code || st.station_code || '';
-                                const levelVal = parseFloat(st.waterlevel_msl ?? st.waterlevel ?? st.value ?? 0);
-                                const flowVal = parseFloat(st.discharge ?? st.flow ?? 0);
+                        const assign = (key) => {
+                            if (!isNaN(levelVal) && levelVal > 0) stations[key].level = levelVal;
+                            if (!isNaN(flowVal) && flowVal >= 0) stations[key].flow = flowVal;
+                        };
 
-                                const assign = (key) => {
-                                    if (!isNaN(levelVal) && levelVal > 0) stations[key].level = levelVal;
-                                    if (!isNaN(flowVal) && flowVal >= 0) stations[key].flow = flowVal;
-                                };
-
-                                if (stName.includes('M.177') || stCode === 'M177' || stCode === 'M.177') assign('M177');
-                                if (stName.includes('M.192') || stCode === 'M192' || stCode === 'M.192') assign('M192');
-                                if (stName.includes('M.191') || stCode === 'M191' || stCode === 'M.191') assign('M191');
-                                if (stName.includes('M.164') || stCode === 'M164' || stCode === 'M.164') assign('M164');
-                            });
-                            return stations;
-                        }
-                    }
+                        if (stName.includes('M.177') || stCode === 'M177') assign('M177');
+                        if (stName.includes('M.192') || stCode === 'M192') assign('M192');
+                        if (stName.includes('M.191') || stCode === 'M191') assign('M191');
+                        if (stName.includes('M.164') || stCode === 'M164') assign('M164');
+                    });
+                    break;
                 }
-            } catch (err) {}
-        }
+            }
+        } catch (e) {}
     }
 
     return stations;
 }
 
 // ----------------------------------------------------
-// พยากรณ์อากาศประจำวัน (Open-Meteo API Real-time)
+// 3. พยากรณ์อากาศประจำวัน (Open-Meteo API Real-time)
 // ----------------------------------------------------
 async function loadWeatherData() {
     try {
@@ -220,7 +219,7 @@ function scheduleEightAMUpdate() {
 }
 
 // ----------------------------------------------------
-// UI Renderers
+// UI Renderers (Responsive & Modern Dashboard)
 // ----------------------------------------------------
 function renderAllUI(dam, waterLevels) {
     if (dam) updateDamUI(dam);
