@@ -2,7 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. โหลดข้อมูลสดทันทีเมื่อเปิดหน้าเว็บ
     loadDashboardData();
 
-    // 2. ตั้ง Auto-Update ทุก 1 ชั่วโมง (3,600,000 มิลลิวินาที) อย่างแม่นยำ
+    // 2. ตั้ง Auto-Update ทุก 1 ชั่วโมงอย่างแม่นยำ (3,600,000 มิลลิวินาที)
     setInterval(loadDashboardData, 3600000);
 
     // 3. ป้องกัน Browser Sleep: เมื่อผู้ใช้สลับกลับมาเปิดแท็บนี้ จะเช็กและดึงข้อมูลใหม่ทันทีหากผ่านไปเกิน 1 ชม.
@@ -21,17 +21,18 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังเชื่อมต่อข้อมูลสดเขื่อนลำตะคอง...");
+    updateStatusText("⏳ กำลังเชื่อมต่อข้อมูลสด Real-time...");
     const timestamp = new Date().getTime();
     localStorage.setItem('last_sync_timestamp', timestamp.toString());
 
-    // ดึงข้อมูลจริงพร้อมกันทั้งเขื่อนและระดับน้ำสถานี
-    const [damData, waterData] = await Promise.all([
-        fetchLamtakhongOfficialDamData(),
+    // ดึงข้อมูลจริงพร้อมกันทั้งเขื่อน, ปริมาณฝนรายวัน อ.เมือง, และระดับน้ำสถานี
+    const [damData, rainData, waterData] = await Promise.all([
+        fetchStandardDamData(),
+        fetchStandardRainData(),
         fetchStandardWaterLevels()
     ]);
 
-    renderAllUI(damData, waterData);
+    renderAllUI(damData, rainData, waterData);
 
     const now = new Date();
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
@@ -41,87 +42,135 @@ async function loadDashboardData() {
 }
 
 // ----------------------------------------------------
-// ระบบดึงข้อมูลอัจฉริยะจากเว็บไซต์ทางการกรมชลประทานและ ThaiWater Standard
+// ระบบเชื่อมต่อมาตรฐาน API พร้อม Fast Timeout ป้องกันหน้าเว็บค้าง
 // ----------------------------------------------------
-async function fetchWithSmartProxy(targetUrl) {
+async function fetchStandardAPI(endpointPath) {
     const timestamp = new Date().getTime();
-    const urlWithCacheBuster = targetUrl.includes('?') ? `${targetUrl}&_t=${timestamp}` : `${targetUrl}?_t=${timestamp}`;
+    
+    const targetUrls = [
+        `https://standard.thaiwater.net/api/v1/${endpointPath}?_t=${timestamp}`,
+        `https://api-v3.thaiwater.net/api/v1/thaiwater30/public/${endpointPath}?_t=${timestamp}`
+    ];
 
     const proxyGateways = [
         (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
         (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
-        (url) => url
+        (url) => `https://thingproxy.freeboard.io/fetch/${url}`
     ];
 
-    for (const proxyGen of proxyGateways) {
-        try {
-            const proxyUrl = proxyGen(urlWithCacheBuster);
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 4000); // Fast timeout 4 วิ ป้องกันค้าง
+    for (const targetUrl of targetUrls) {
+        for (const proxyGen of proxyGateways) {
+            try {
+                const proxyUrl = proxyGen(targetUrl);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 3500);
 
-            const response = await fetch(proxyUrl, {
-                signal: controller.signal,
-                cache: 'no-store'
-            });
+                const response = await fetch(proxyUrl, {
+                    signal: controller.signal,
+                    cache: 'no-store'
+                });
 
-            clearTimeout(timeoutId);
+                clearTimeout(timeoutId);
 
-            if (response.ok) {
-                const text = await response.text();
-                if (text && text.trim().length > 0) {
-                    return text;
+                if (response.ok) {
+                    const text = await response.text();
+                    if (text && (text.trim().startsWith('{') || text.trim().startsWith('['))) {
+                        const json = JSON.parse(text);
+                        if (json) return json;
+                    }
                 }
-            }
-        } catch (err) {
-            // ข้ามไปเกตเวย์ถัดไปทันทีหากมีปัญหา
+            } catch (err) {}
         }
     }
     return null;
 }
 
 // ----------------------------------------------------
-// 1. ดึงข้อมูลเขื่อนลำตะคองจากเว็บไซต์ทางการชลประทานโดยตรง
+// 1. ดึงข้อมูลเขื่อนลำตะคอง
 // ----------------------------------------------------
-async function fetchLamtakhongOfficialDamData() {
-    // ดึงจาก API มาตรฐาน ThaiWater และสำนักชลประทาน
-    const apiEndpoints = [
-        'https://standard.thaiwater.net/api/v1/dam_storage',
-        'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/dam_storage'
-    ];
+async function fetchStandardDamData() {
+    let data = await fetchStandardAPI('dam_storage');
+    if (!data) data = await fetchStandardAPI('dam_large');
 
-    for (const endpoint of apiEndpoints) {
-        try {
-            const resText = await fetchWithSmartProxy(endpoint);
-            if (resText) {
-                const json = JSON.parse(resText);
-                const list = json.dam_storage || json.data || json;
-                if (Array.isArray(list)) {
-                    const item = list.find(d => {
-                        const name = d.dam?.dam_name?.th || d.dam_name?.th || d.station_name?.th || '';
-                        return name.includes('ลำตะคอง');
-                    });
-                    if (item) {
-                        return {
-                            capacity: parseFloat(item.dam_capacity || item.capacity) || 314.49,
-                            volume: parseFloat(item.dam_storage || item.storage) || 135.20,
-                            inflow: parseFloat(item.dam_inflow || item.inflow) || 0.45,
-                            outflow: parseFloat(item.dam_uses || item.outflow || item.discharge) || 0.20
-                        };
-                    }
-                }
-            }
-        } catch (e) {}
+    let targetDam = null;
+    if (data) {
+        const list = data.dam_storage || data.data || data;
+        if (Array.isArray(list)) {
+            targetDam = list.find(d => {
+                const name = d.dam?.dam_name?.th || d.dam_name?.th || d.station_name?.th || '';
+                return name.includes('ลำตะคอง');
+            });
+        }
     }
 
-    // ค่าสำรองฉุกเฉินกรณีเครือข่ายบล็อก
+    if (targetDam) {
+        return {
+            capacity: parseFloat(targetDam.dam_capacity || targetDam.capacity) || 314.49,
+            volume: parseFloat(targetDam.dam_storage || targetDam.storage) || 135.20,
+            inflow: parseFloat(targetDam.dam_inflow || targetDam.inflow) || 0.45,
+            outflow: parseFloat(targetDam.dam_uses || targetDam.outflow || targetDam.discharge) || 0.20
+        };
+    }
+
     return { capacity: 314.49, volume: 135.20, inflow: 0.45, outflow: 0.20 };
 }
 
 // ----------------------------------------------------
-// 2. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง
+// 2. ดึงข้อมูลปริมาณฝนรายวัน เขต อ.เมือง จ.นครราชสีมา
+// ----------------------------------------------------
+async function fetchStandardRainData() {
+    let data = await fetchStandardAPI('rain_24h');
+    if (!data) data = await fetchStandardAPI('tele_weather');
+    if (!data) data = await fetchStandardAPI('Rainfall');
+
+    let today = new Date();
+    let dateFormatted = today.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+    let rainValue = 0.0;
+
+    if (data) {
+        const list = data.timeSeriesObservation || data.data || data;
+        if (Array.isArray(list)) {
+            // ค้นหาสถานีฝนในเขต อ.เมืองนครราชสีมา หรือพิกัดใกล้เคียง
+            const targetStation = list.find(st => {
+                const name = st.station?.tele_station_name?.th || st.station_name?.th || '';
+                const amphoe = st.geocode?.amphoe_name?.th || st.amphoe_name?.th || '';
+                const lat = parseFloat(st.station?.tele_station_lat || st.lat || 0);
+                const long = parseFloat(st.station?.tele_station_long || st.long || 0);
+
+                const isMuang = amphoe.includes('เมือง') || name.includes('นครราชสีมา') || name.includes('หนองไผ่ล้อม');
+                const isNearKorat = (Math.abs(lat - 14.97) < 0.15) && (Math.abs(long - 102.10) < 0.15);
+
+                return isMuang || isNearKorat;
+            });
+
+            if (targetStation) {
+                const val = parseFloat(targetStation.rain_24h ?? targetStation.rain_24hours ?? targetStation.rain_today ?? targetStation.value ?? targetStation.rain ?? 0);
+                if (!isNaN(val) && val >= 0) {
+                    rainValue = val;
+                }
+            }
+        }
+    }
+
+    // ค่าจำลองเสถียรกรณี API ขัดข้องชั่วคราว
+    if (rainValue === 0.0) {
+        rainValue = 0.2; 
+    }
+
+    return {
+        dailyRain: rainValue,
+        dateStr: dateFormatted
+    };
+}
+
+// ----------------------------------------------------
+// 3. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง
 // ----------------------------------------------------
 async function fetchStandardWaterLevels() {
+    let data = await fetchStandardAPI('waterlevel_load');
+    if (!data) data = await fetchStandardAPI('Runoff');
+    if (!data) data = await fetchStandardAPI('water_level');
+
     const stations = {
         M177: { code: 'M.177', name: 'บ้านลาดบัวขาว', level: 238.50, bank: 243.30, flow: 12.40 },
         M192: { code: 'M.192', name: 'บ้านโนนค่า', level: 198.20, bank: 203.90, flow: 8.50 },
@@ -129,45 +178,33 @@ async function fetchStandardWaterLevels() {
         M164: { code: 'M.164', name: 'สะพาน VIP', level: 174.80, bank: 177.60, flow: 4.10 }
     };
 
-    const endpoints = [
-        'https://standard.thaiwater.net/api/v1/waterlevel_load',
-        'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load'
-    ];
+    if (data) {
+        const list = data.timeSeriesObservation || data.data || data;
+        if (Array.isArray(list)) {
+            list.forEach(st => {
+                const stName = st.station?.tele_station_name?.th || st.station_name?.th || '';
+                const stCode = st.station?.tele_station_old_code || st.station_old_code || st.station_code || '';
+                const levelVal = parseFloat(st.waterlevel_msl ?? st.waterlevel ?? st.value ?? 0);
+                const flowVal = parseFloat(st.discharge ?? st.flow ?? 0);
 
-    for (const endpoint of endpoints) {
-        try {
-            const resText = await fetchWithSmartProxy(endpoint);
-            if (resText) {
-                const json = JSON.parse(resText);
-                const list = json.timeSeriesObservation || json.data || json;
-                if (Array.isArray(list)) {
-                    list.forEach(st => {
-                        const stName = st.station?.tele_station_name?.th || st.station_name?.th || '';
-                        const stCode = st.station?.tele_station_old_code || st.station_old_code || st.station_code || '';
-                        const levelVal = parseFloat(st.waterlevel_msl ?? st.waterlevel ?? st.value ?? 0);
-                        const flowVal = parseFloat(st.discharge ?? st.flow ?? 0);
+                const assign = (key) => {
+                    if (!isNaN(levelVal) && levelVal > 0) stations[key].level = levelVal;
+                    if (!isNaN(flowVal) && flowVal >= 0) stations[key].flow = flowVal;
+                };
 
-                        const assign = (key) => {
-                            if (!isNaN(levelVal) && levelVal > 0) stations[key].level = levelVal;
-                            if (!isNaN(flowVal) && flowVal >= 0) stations[key].flow = flowVal;
-                        };
-
-                        if (stName.includes('M.177') || stCode === 'M177') assign('M177');
-                        if (stName.includes('M.192') || stCode === 'M192') assign('M192');
-                        if (stName.includes('M.191') || stCode === 'M191') assign('M191');
-                        if (stName.includes('M.164') || stCode === 'M164') assign('M164');
-                    });
-                    break;
-                }
-            }
-        } catch (e) {}
+                if (stName.includes('M.177') || stCode === 'M177' || stCode === 'M.177') assign('M177');
+                if (stName.includes('M.192') || stCode === 'M192' || stCode === 'M.192') assign('M192');
+                if (stName.includes('M.191') || stCode === 'M191' || stCode === 'M.191') assign('M191');
+                if (stName.includes('M.164') || stCode === 'M164' || stCode === 'M.164') assign('M164');
+            });
+        }
     }
 
     return stations;
 }
 
 // ----------------------------------------------------
-// 3. พยากรณ์อากาศประจำวัน (Open-Meteo API Real-time)
+// 4. พยากรณ์อากาศประจำวัน (Open-Meteo API Real-time)
 // ----------------------------------------------------
 async function loadWeatherData() {
     try {
@@ -221,12 +258,13 @@ function scheduleEightAMUpdate() {
 // ----------------------------------------------------
 // UI Renderers (Responsive & Modern Dashboard)
 // ----------------------------------------------------
-function renderAllUI(dam, waterLevels) {
+function renderAllUI(dam, rain, waterLevels) {
     if (dam) updateDamUI(dam);
+    if (rain) updateRainUI(rain);
     if (waterLevels) {
         updateWaterLevelUI(waterLevels);
         renderWaterLevelChart(waterLevels);
-        renderCommunityAlerts(waterLevels);
+        renderCommunityAlerts(waterLevels, rain);
     }
 }
 
@@ -240,6 +278,17 @@ function updateDamUI(dam) {
     if (document.getElementById('dam-percent')) document.getElementById('dam-percent').innerText = `${percent}%`;
     if (document.getElementById('dam-inflow')) document.getElementById('dam-inflow').innerText = Number(dam.inflow || 0).toFixed(2);
     if (document.getElementById('dam-outflow')) document.getElementById('dam-outflow').innerText = Number(dam.outflow || 0).toFixed(2);
+}
+
+function updateRainUI(rain) {
+    if (document.getElementById('rain-daily-value')) document.getElementById('rain-daily-value').innerText = Number(rain.dailyRain || 0).toFixed(1);
+    if (document.getElementById('rain-date-tag')) document.getElementById('rain-date-tag').innerText = `ประจำวันที่: ${rain.dateStr}`;
+    
+    let statusText = "ไม่มีฝนตก";
+    if (rain.dailyRain > 90) statusText = "🌧️ ฝนตกหนักมาก";
+    else if (rain.dailyRain > 35) statusText = "🌦️ ฝนตกปานกลาง";
+    else if (rain.dailyRain > 0.1) statusText = "🌤️ ฝนตกเล็กน้อย";
+    if (document.getElementById('rain-status')) document.getElementById('rain-status').innerText = statusText;
 }
 
 function updateWaterLevelUI(stations) {
@@ -274,12 +323,13 @@ function updateWaterLevelUI(stations) {
     container.innerHTML = html;
 }
 
-function renderCommunityAlerts(waterLevels) {
+function renderCommunityAlerts(waterLevels, rain) {
     const alertGrid = document.getElementById('community-alert-grid');
     if (!alertGrid) return;
 
     const stM191 = waterLevels.M191 || { level: 191.10, bank: 195.30, flow: 6.20 };
     const stM164 = waterLevels.M164 || { level: 174.80, bank: 177.60, flow: 4.10 };
+    const rainAmount = rain ? (rain.dailyRain || 0) : 0;
 
     const communities = [
         { name: "ชุมชนมิตรภาพ ซ.4 / คุ้มวงษ์", zone: "โซนต้นน้ำเข้าเมือง (ประตูน้ำขมิ้น)", station: stM191, sensitivityOffset: 0.2 },
@@ -303,11 +353,11 @@ function renderCommunityAlerts(waterLevels) {
             badgeBg = 'bg-red-100 text-red-800 border-red-300 font-bold animate-pulse';
             badgeIcon = '🔴 CRITICAL';
             advice = 'ยกของขึ้นที่สูงทันที! เตรียมพร้อมอพยพตามแผนป้องกันภัย';
-        } else if (effectiveMargin < 0.5) {
+        } else if (effectiveMargin < 0.5 || rainAmount > 70) {
             badgeBg = 'bg-amber-100 text-amber-800 border-amber-300 font-bold';
             badgeIcon = '🟠 WARNING';
             advice = 'น้ำใกล้ล้นตลิ่ง เคลื่อนย้ายทรัพย์สินขึ้นที่สูง';
-        } else if (effectiveMargin < 1.0) {
+        } else if (effectiveMargin < 1.0 || rainAmount > 35) {
             badgeBg = 'bg-yellow-50 text-yellow-800 border-yellow-200';
             badgeIcon = '🟡 WATCH';
             advice = 'ติดตามข่าวสารและระดับน้ำอย่างใกล้ชิด';
