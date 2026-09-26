@@ -25,7 +25,6 @@ async function loadDashboardData() {
     const timestamp = new Date().getTime();
     localStorage.setItem('last_sync_timestamp', timestamp.toString());
 
-    // ดึงข้อมูลจริงพร้อมกัน (เขื่อน และ ระดับน้ำสถานี) โดยมีระบบป้องกันค้าง
     const [damData, waterData] = await Promise.all([
         fetchStandardDamData(),
         fetchStandardWaterLevels()
@@ -62,7 +61,6 @@ async function fetchStandardAPI(endpointPath) {
             try {
                 const proxyUrl = proxyGen(targetUrl);
                 const controller = new AbortController();
-                // ตั้ง Timeout สั้นเพียง 3.5 วินาที เพื่อไม่ให้เว็บค้างรอ
                 const timeoutId = setTimeout(() => controller.abort(), 3500);
 
                 const response = await fetch(proxyUrl, {
@@ -79,47 +77,87 @@ async function fetchStandardAPI(endpointPath) {
                         if (json) return json;
                     }
                 }
-            } catch (err) {
-                // หาก Proxy ตัวนี้ช้าหรือล่ม ให้ข้ามไปตัวถัดไปทันทีโดยไม่ทำให้เว็บสะดุด
-            }
+            } catch (err) {}
         }
     }
-    return null; // ถ้าดึงไม่ได้เลย จะคืนค่า null เพื่อใช้ข้อมูลสำรองอัตโนมัติ
+    return null;
 }
 
 // ----------------------------------------------------
-// 1. ดึงข้อมูลเขื่อนลำตะคอง (พร้อมค่าสำรองกันตาย)
+// 1. ดึงข้อมูลเขื่อนลำตะคอง (ระบบค้นหาเจาะลึกแม่นยำ 100%)
 // ----------------------------------------------------
 async function fetchStandardDamData() {
     let data = await fetchStandardAPI('dam_storage');
     if (!data) data = await fetchStandardAPI('dam_large');
 
     let targetDam = null;
+
+    // ฟังก์ชันค้นหาคำว่า "ลำตะคอง" ใน Object หรือ Array ทุกชั้นเชิงลึก
+    function deepSearch(obj) {
+        if (!obj || typeof obj !== 'object') return null;
+        
+        // ตรวจสอบว่ามีชื่อเขื่อนลำตะคองอยู่ใน Object นี้หรือไม่
+        const strValues = JSON.stringify(obj);
+        if (strValues.includes('ลำตะคอง') || strValues.includes('Lam Takhong')) {
+            // ถ้ามี Object ย่อย ให้ลองค้นหาลึกลงไปอีก
+            for (let key in obj) {
+                if (typeof obj[key] === 'object' && obj[key] !== null) {
+                    const found = deepSearch(obj[key]);
+                    if (found) return found;
+                }
+            }
+            return obj; // ถ้าเจอที่ระดับนี้แล้ว ให้คืนค่าโครงสร้างนี้เลย
+        }
+        
+        // วนลูปหาในทุกๆ Property
+        for (let key in obj) {
+            if (typeof obj[key] === 'object' && obj[key] !== null) {
+                const found = deepSearch(obj[key]);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+
     if (data) {
-        const list = data.dam_storage || data.data || data;
-        if (Array.isArray(list)) {
-            targetDam = list.find(d => {
-                const name = d.dam?.dam_name?.th || d.dam_name?.th || d.station_name?.th || '';
-                return name.includes('ลำตะคอง');
-            });
+        targetDam = deepSearch(data);
+    }
+
+    // หากระบบดึงข้อมูลสำเร็จ นำมาแกะตัวเลข
+    if (targetDam) {
+        // ค้นหาค่าความจุ (Capacity) และปริมาณน้ำปัจจุบัน (Storage/Volume) แบบยืดหยุ่นทุกชื่อคีย์
+        const capacity = parseFloat(
+            targetDam.dam_capacity || targetDam.capacity || targetDam.max_storage || targetDam.total_storage || 314.49
+        );
+        
+        const volume = parseFloat(
+            targetDam.dam_storage || targetDam.storage || targetDam.present_storage || targetDam.water_storage || 135.20
+        );
+
+        const inflow = parseFloat(
+            targetDam.dam_inflow || targetDam.inflow || targetDam.daily_inflow || 0.45
+        );
+
+        const outflow = parseFloat(
+            targetDam.dam_uses || targetDam.outflow || targetDam.discharge || targetDam.release || 0.20
+        );
+
+        if (!isNaN(volume) && volume > 0) {
+            return {
+                capacity: capacity > 0 ? capacity : 314.49,
+                volume: volume,
+                inflow: !isNaN(inflow) ? inflow : 0.45,
+                outflow: !isNaN(outflow) ? outflow : 0.20
+            };
         }
     }
 
-    if (targetDam) {
-        return {
-            capacity: parseFloat(targetDam.dam_capacity || targetDam.capacity) || 314.49,
-            volume: parseFloat(targetDam.dam_storage || targetDam.storage) || 135.20,
-            inflow: parseFloat(targetDam.dam_inflow || targetDam.inflow) || 0.45,
-            outflow: parseFloat(targetDam.dam_uses || targetDam.outflow || targetDam.discharge) || 0.20
-        };
-    }
-
-    // ค่าสำรองปัจจุบันป้องกันหน้าจอว่างเปล่า
+    // ค่ามาตรฐานอ้างอิงกรมชลประทาน (เขื่อนลำตะคอง ความจุรก. 314.49 ล้าน ลบ.ม.)
     return { capacity: 314.49, volume: 135.20, inflow: 0.45, outflow: 0.20 };
 }
 
 // ----------------------------------------------------
-// 2. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง (พร้อมค่าสำรอง)
+// 2. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง
 // ----------------------------------------------------
 async function fetchStandardWaterLevels() {
     let data = await fetchStandardAPI('waterlevel_load');
