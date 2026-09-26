@@ -25,14 +25,13 @@ async function loadDashboardData() {
     const timestamp = new Date().getTime();
     localStorage.setItem('last_sync_timestamp', timestamp.toString());
 
-    // ดึงข้อมูลจริงพร้อมกันทุกส่วน (เขื่อน, ฝน, ระดับน้ำ)
-    const [damData, rainData, waterData] = await Promise.all([
+    // ดึงข้อมูลจริงพร้อมกัน (เขื่อน และ ระดับน้ำสถานี)
+    const [damData, waterData] = await Promise.all([
         fetchStandardDamData(),
-        fetchStandardRainData(),
         fetchStandardWaterLevels()
     ]);
 
-    renderAllUI(damData, rainData, waterData);
+    renderAllUI(damData, waterData);
 
     const now = new Date();
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
@@ -47,7 +46,6 @@ async function loadDashboardData() {
 async function fetchStandardAPI(endpointPath) {
     const timestamp = new Date().getTime();
     
-    // รายการ Endpoint สำรองตามมาตรฐาน ThaiWater Standard และ Public API V3
     const targetUrls = [
         `https://standard.thaiwater.net/api/v1/${endpointPath}?_t=${timestamp}`,
         `https://api-v3.thaiwater.net/api/v1/thaiwater30/public/${endpointPath}?_t=${timestamp}`
@@ -85,9 +83,7 @@ async function fetchStandardAPI(endpointPath) {
                         if (json) return json;
                     }
                 }
-            } catch (err) {
-                // ข้ามไปลองช่องทางสำรองถัดไป
-            }
+            } catch (err) {}
         }
     }
     return null;
@@ -124,66 +120,7 @@ async function fetchStandardDamData() {
 }
 
 // ----------------------------------------------------
-// 2. ดึงข้อมูลปริมาณฝนสะสม ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา)
-// ----------------------------------------------------
-async function fetchStandardRainData() {
-    // ตามมาตรฐาน ThaiWater Standard ใช้ /Rainfall หรือ /rain_24h หรือ /tele_weather
-    let data = await fetchStandardAPI('Rainfall');
-    if (!data) data = await fetchStandardAPI('rain_24h');
-    if (!data) data = await fetchStandardAPI('tele_weather');
-
-    let today = new Date();
-    let dateFormatted = today.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
-
-    let rainVal = 0.0;
-    let stationTitle = "สถานีนครราชสีมา ต.หนองไผ่ล้อม (กรมอุตุนิยมวิทยา)";
-
-    if (data) {
-        const stations = data.timeSeriesObservation || data.data || data;
-        if (Array.isArray(stations)) {
-            // ค้นหาสถานี ต.หนองไผ่ล้อม หรือพิกัดใกล้เคียง (14.9683, 102.08603)
-            let target = stations.find(s => {
-                const lat = parseFloat(s.station?.tele_station_lat || s.lat || s.station_lat || 0);
-                const long = parseFloat(s.station?.tele_station_long || s.long || s.station_long || 0);
-                const agency = (s.agency?.agency_name?.th || s.agency_name?.th || '').toUpperCase();
-                
-                const isCoord = (Math.abs(lat - 14.9683) < 0.05) && (Math.abs(long - 102.08603) < 0.05);
-                const isTMD = agency.includes('กรมอุตุนิยมวิทยา') || agency.includes('TMD');
-                return isCoord && isTMD;
-            });
-
-            if (!target) {
-                target = stations.find(s => {
-                    const name = s.station?.tele_station_name?.th || s.station_name?.th || '';
-                    const subdistrict = s.geocode?.subdistrict_name?.th || s.subdistrict_name?.th || '';
-                    return name.includes('นครราชสีมา') || name.includes('หนองไผ่ล้อม') || subdistrict.includes('หนองไผ่ล้อม');
-                });
-            }
-
-            if (target) {
-                const r24 = parseFloat(target.rain_24h ?? target.rain_24hours ?? target.value ?? target.rain ?? 0);
-                const rToday = parseFloat(target.rain_today ?? 0);
-                
-                if (!isNaN(r24) && r24 >= 0) rainVal = r24;
-                else if (!isNaN(rToday) && rToday >= 0) rainVal = rToday;
-
-                const nameFound = target.station?.tele_station_name?.th || target.station_name?.th;
-                if (nameFound) {
-                    stationTitle = `${nameFound} (กรมอุตุนิยมวิทยา)`;
-                }
-            }
-        }
-    }
-
-    return {
-        stationName: stationTitle,
-        rain24h: rainVal,
-        dateStr: dateFormatted
-    };
-}
-
-// ----------------------------------------------------
-// 3. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง (Real-time Standard API)
+// 2. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง (Real-time Standard API)
 // ----------------------------------------------------
 async function fetchStandardWaterLevels() {
     let data = await fetchStandardAPI('waterlevel_load');
@@ -223,7 +160,7 @@ async function fetchStandardWaterLevels() {
 }
 
 // ----------------------------------------------------
-// 4. พยากรณ์อากาศประจำวัน (Open-Meteo API Real-time)
+// 3. พยากรณ์อากาศประจำวัน (Open-Meteo API Real-time)
 // ----------------------------------------------------
 async function loadWeatherData() {
     try {
@@ -277,13 +214,12 @@ function scheduleEightAMUpdate() {
 // ----------------------------------------------------
 // UI Renderers (Responsive & Modern Dashboard)
 // ----------------------------------------------------
-function renderAllUI(dam, rain, waterLevels) {
+function renderAllUI(dam, waterLevels) {
     if (dam) updateDamUI(dam);
-    if (rain) updateRainUI(rain);
     if (waterLevels) {
         updateWaterLevelUI(waterLevels);
         renderWaterLevelChart(waterLevels);
-        renderCommunityAlerts(waterLevels, rain);
+        renderCommunityAlerts(waterLevels);
     }
 }
 
@@ -297,18 +233,6 @@ function updateDamUI(dam) {
     if (document.getElementById('dam-percent')) document.getElementById('dam-percent').innerText = `${percent}%`;
     if (document.getElementById('dam-inflow')) document.getElementById('dam-inflow').innerText = Number(dam.inflow || 0).toFixed(2);
     if (document.getElementById('dam-outflow')) document.getElementById('dam-outflow').innerText = Number(dam.outflow || 0).toFixed(2);
-}
-
-function updateRainUI(rain) {
-    if (document.getElementById('rain-station-name')) document.getElementById('rain-station-name').innerText = rain.stationName;
-    if (document.getElementById('rain-24h')) document.getElementById('rain-24h').innerText = Number(rain.rain24h || 0).toFixed(1);
-    if (document.getElementById('rain-date-tag')) document.getElementById('rain-date-tag').innerText = `ประจำวันที่: ${rain.dateStr}`;
-    
-    let statusText = "ไม่มีฝนตก";
-    if (rain.rain24h > 90) statusText = "🌧️ ฝนตกหนักมาก";
-    else if (rain.rain24h > 35) statusText = "🌦️ ฝนตกปานกลาง";
-    else if (rain.rain24h > 0.1) statusText = "🌤️ ฝนตกเล็กน้อย";
-    if (document.getElementById('rain-status')) document.getElementById('rain-status').innerText = statusText;
 }
 
 function updateWaterLevelUI(stations) {
@@ -343,13 +267,12 @@ function updateWaterLevelUI(stations) {
     container.innerHTML = html;
 }
 
-function renderCommunityAlerts(waterLevels, rain) {
+function renderCommunityAlerts(waterLevels) {
     const alertGrid = document.getElementById('community-alert-grid');
     if (!alertGrid) return;
 
     const stM191 = waterLevels.M191 || { level: 191.10, bank: 195.30, flow: 6.20 };
     const stM164 = waterLevels.M164 || { level: 174.80, bank: 177.60, flow: 4.10 };
-    const rainAmount = rain ? (rain.rain24h || 0) : 0;
 
     const communities = [
         { name: "ชุมชนมิตรภาพ ซ.4 / คุ้มวงษ์", zone: "โซนต้นน้ำเข้าเมือง (ประตูน้ำขมิ้น)", station: stM191, sensitivityOffset: 0.2 },
@@ -373,11 +296,11 @@ function renderCommunityAlerts(waterLevels, rain) {
             badgeBg = 'bg-red-100 text-red-800 border-red-300 font-bold animate-pulse';
             badgeIcon = '🔴 CRITICAL';
             advice = 'ยกของขึ้นที่สูงทันที! เตรียมพร้อมอพยพตามแผนป้องกันภัย';
-        } else if (effectiveMargin < 0.5 || rainAmount > 70) {
+        } else if (effectiveMargin < 0.5) {
             badgeBg = 'bg-amber-100 text-amber-800 border-amber-300 font-bold';
             badgeIcon = '🟠 WARNING';
             advice = 'น้ำใกล้ล้นตลิ่ง เคลื่อนย้ายทรัพย์สินขึ้นที่สูง';
-        } else if (effectiveMargin < 1.0 || rainAmount > 35) {
+        } else if (effectiveMargin < 1.0) {
             badgeBg = 'bg-yellow-50 text-yellow-800 border-yellow-200';
             badgeIcon = '🟡 WATCH';
             advice = 'ติดตามข่าวสารและระดับน้ำอย่างใกล้ชิด';
