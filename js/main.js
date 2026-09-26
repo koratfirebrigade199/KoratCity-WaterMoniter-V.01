@@ -21,11 +21,11 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function loadDashboardData() {
-    updateStatusText("⏳ กำลังเชื่อมต่อข้อมูลสด (Real-time)...");
+    updateStatusText("⏳ กำลังโหลดข้อมูลสด...");
     const timestamp = new Date().getTime();
     localStorage.setItem('last_sync_timestamp', timestamp.toString());
 
-    // ดึงข้อมูลจริงพร้อมกัน (เขื่อน และ ระดับน้ำสถานี)
+    // ดึงข้อมูลจริงพร้อมกัน (เขื่อน และ ระดับน้ำสถานี) โดยมีระบบป้องกันค้าง
     const [damData, waterData] = await Promise.all([
         fetchStandardDamData(),
         fetchStandardWaterLevels()
@@ -37,11 +37,11 @@ async function loadDashboardData() {
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     const dateStr = now.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
     
-    updateStatusText(`อัปเดตล่าสุด: ${dateStr} เวลา ${timeStr} น. (Real-time Auto-Sync ทุก 1 ชม.)`);
+    updateStatusText(`อัปเดตล่าสุด: ${dateStr} เวลา ${timeStr} น.`);
 }
 
 // ----------------------------------------------------
-// ระบบเชื่อมต่อมาตรฐาน API จาก standard.thaiwater.net ผ่าน CORS Gateway
+// ระบบเชื่อมต่อมาตรฐาน API พร้อม Fast Timeout ป้องกันหน้าเว็บค้าง
 // ----------------------------------------------------
 async function fetchStandardAPI(endpointPath) {
     const timestamp = new Date().getTime();
@@ -54,8 +54,7 @@ async function fetchStandardAPI(endpointPath) {
     const proxyGateways = [
         (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
         (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
-        (url) => url
+        (url) => `https://thingproxy.freeboard.io/fetch/${url}`
     ];
 
     for (const targetUrl of targetUrls) {
@@ -63,15 +62,12 @@ async function fetchStandardAPI(endpointPath) {
             try {
                 const proxyUrl = proxyGen(targetUrl);
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 7000);
+                // ตั้ง Timeout สั้นเพียง 3.5 วินาที เพื่อไม่ให้เว็บค้างรอ
+                const timeoutId = setTimeout(() => controller.abort(), 3500);
 
                 const response = await fetch(proxyUrl, {
                     signal: controller.signal,
-                    cache: 'no-store',
-                    headers: {
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache'
-                    }
+                    cache: 'no-store'
                 });
 
                 clearTimeout(timeoutId);
@@ -83,14 +79,16 @@ async function fetchStandardAPI(endpointPath) {
                         if (json) return json;
                     }
                 }
-            } catch (err) {}
+            } catch (err) {
+                // หาก Proxy ตัวนี้ช้าหรือล่ม ให้ข้ามไปตัวถัดไปทันทีโดยไม่ทำให้เว็บสะดุด
+            }
         }
     }
-    return null;
+    return null; // ถ้าดึงไม่ได้เลย จะคืนค่า null เพื่อใช้ข้อมูลสำรองอัตโนมัติ
 }
 
 // ----------------------------------------------------
-// 1. ดึงข้อมูลเขื่อนลำตะคอง (Real-time)
+// 1. ดึงข้อมูลเขื่อนลำตะคอง (พร้อมค่าสำรองกันตาย)
 // ----------------------------------------------------
 async function fetchStandardDamData() {
     let data = await fetchStandardAPI('dam_storage');
@@ -116,11 +114,12 @@ async function fetchStandardDamData() {
         };
     }
 
+    // ค่าสำรองปัจจุบันป้องกันหน้าจอว่างเปล่า
     return { capacity: 314.49, volume: 135.20, inflow: 0.45, outflow: 0.20 };
 }
 
 // ----------------------------------------------------
-// 2. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง (Real-time Standard API)
+// 2. ดึงระดับน้ำ 4 สถานีหลักลำตะคอง (พร้อมค่าสำรอง)
 // ----------------------------------------------------
 async function fetchStandardWaterLevels() {
     let data = await fetchStandardAPI('waterlevel_load');
